@@ -63,6 +63,7 @@ class SqlDownloadRepository(DownloadRepository):
                             DownloadStatus.QUEUED.value,
                             DownloadStatus.INSPECTING.value,
                             DownloadStatus.PAUSING.value,
+                            DownloadStatus.PAUSED.value,
                             DownloadStatus.RESUMING.value,
                             DownloadStatus.VERIFYING.value,
                             DownloadStatus.ASSEMBLING.value,
