@@ -7,7 +7,8 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
+# Root Downloads Directory (runtime outputs only)
+/downloads/
 eggs/
 .eggs/
 lib/
@@ -32,7 +33,8 @@ env/
 data/
 logs/
 .pyidm_temp/
-downloads/.pyidm_temp/
+# Root Downloads Directory (runtime outputs only)
+/downloads/.pyidm_temp/
 *.db
 *.db-wal
 *.db-shm
