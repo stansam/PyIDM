@@ -23,6 +23,7 @@ from app.presentation.delegates.segmented_progress_delegate import (
     SegmentedProgressBarDelegate,
 )
 from app.presentation.dialogs.download_details_dialog import DownloadDetailsDialog
+from app.presentation.dialogs.help_dialog import HelpDialog
 from app.presentation.dialogs.settings_dialog import SettingsDialog
 from app.presentation.models.download_table_model import DownloadTableModel
 from app.presentation.windows.main_window import MainWindow
@@ -208,3 +209,10 @@ def test_segmented_progress_delegate(tmp_path: Path) -> None:
     size = delegate.sizeHint(opt, idx)
     assert isinstance(size, QSize)
     assert size.height() >= 32
+
+
+def test_help_dialog(qtbot: QtBot) -> None:
+    dlg = HelpDialog()
+    qtbot.addWidget(dlg)
+    dlg.show()
+    assert dlg.windowTitle().startswith("PyIDM")

@@ -24,6 +24,12 @@ from PySide6.QtWidgets import (
 from app.domain.downloads.entities.download import Download
 from app.domain.downloads.entities.segment import DownloadSegment
 from app.domain.downloads.value_objects.file_size import FileSize
+from app.presentation.icons import (
+    IconColor,
+    IconName,
+    IconSize,
+    get_icon_manager,
+)
 
 
 class DownloadDetailsDialog(QDialog):
@@ -38,11 +44,13 @@ class DownloadDetailsDialog(QDialog):
         super().__init__(parent)
         self.download = download
         self.segments = segments or []
+        self.icons = get_icon_manager()
+
         self.setWindowTitle(f"Download Details — {download.filename}")
+        self.setWindowIcon(self.icons.get(IconName.INFO, IconColor.PRIMARY))
         self.resize(600, 420)
 
         main_layout = QVBoxLayout(self)
-
         tabs = QTabWidget()
 
         # Tab 1: General Info
@@ -77,7 +85,11 @@ class DownloadDetailsDialog(QDialog):
         if download.last_modified:
             form.addRow("Last-Modified:", QLabel(download.last_modified))
 
-        tabs.addTab(general_widget, "General")
+        tabs.addTab(
+            general_widget,
+            self.icons.get(IconName.INFO, IconColor.PRIMARY, IconSize.SIDEBAR),
+            "General",
+        )
 
         # Tab 2: Segments Information
         segments_widget = QWidget()
@@ -105,7 +117,11 @@ class DownloadDetailsDialog(QDialog):
             seg_text.setPlainText("No segment records available for this task.")
 
         seg_layout.addWidget(seg_text)
-        tabs.addTab(segments_widget, f"Segments ({len(self.segments)})")
+        tabs.addTab(
+            segments_widget,
+            self.icons.get(IconName.GRID, IconColor.PRIMARY, IconSize.SIDEBAR),
+            f"Segments ({len(self.segments)})",
+        )
 
         # Tab 3: Diagnostics / Error logs
         diag_widget = QWidget()
@@ -119,22 +135,34 @@ class DownloadDetailsDialog(QDialog):
             f"Completed At: {self.download.completed_at.isoformat() if self.download.completed_at else 'N/A'}",
         ]
         if self.download.error_message:
-            diag_info.append(f"\n--- Error Details ---\nCategory: {self.download.error_category}\nMessage: {self.download.error_message}")
+            diag_info.append(
+                f"\n--- Error Details ---\nCategory: {self.download.error_category}\nMessage: {self.download.error_message}"
+            )
 
         diag_text.setPlainText("\n".join(diag_info))
         diag_layout.addWidget(diag_text)
-        tabs.addTab(diag_widget, "Diagnostics")
+        tabs.addTab(
+            diag_widget,
+            self.icons.get(
+                IconName.ERROR if self.download.error_message else IconName.HISTORY,
+                IconColor.ERROR if self.download.error_message else IconColor.PRIMARY,
+                IconSize.SIDEBAR,
+            ),
+            "Diagnostics",
+        )
 
         main_layout.addWidget(tabs)
 
         # Action Buttons
         btn_layout = QHBoxLayout()
         open_folder_btn = QPushButton("Open Folder")
+        open_folder_btn.setIcon(self.icons.get(IconName.FOLDER_OPEN, IconColor.SECONDARY, IconSize.SMALL))
         open_folder_btn.clicked.connect(self._open_folder)
         btn_layout.addWidget(open_folder_btn)
 
         if download.final_path.exists():
             open_file_btn = QPushButton("Open File")
+            open_file_btn.setIcon(self.icons.get(IconName.FILE, IconColor.SECONDARY, IconSize.SMALL))
             open_file_btn.clicked.connect(self._open_file)
             btn_layout.addWidget(open_file_btn)
 
@@ -169,4 +197,3 @@ class DownloadDetailsDialog(QDialog):
                 subprocess.Popen(["xdg-open", str(file_path)])
         else:
             QMessageBox.warning(self, "File Not Found", f"Cannot find file: {file_path}")
-

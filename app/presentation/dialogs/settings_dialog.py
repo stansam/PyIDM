@@ -21,6 +21,12 @@ from PySide6.QtWidgets import (
 )
 
 from app.infrastructure.configuration.app_settings import AppSettings
+from app.presentation.icons import (
+    IconColor,
+    IconName,
+    IconSize,
+    get_icon_manager,
+)
 
 
 class SettingsDialog(QDialog):
@@ -29,7 +35,10 @@ class SettingsDialog(QDialog):
     def __init__(self, current_settings: AppSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.settings = current_settings
+        self.icons = get_icon_manager()
+
         self.setWindowTitle("Preferences — PyIDM")
+        self.setWindowIcon(self.icons.get(IconName.SETTINGS, IconColor.SECONDARY))
         self.resize(540, 360)
 
         main_layout = QVBoxLayout(self)
@@ -44,6 +53,7 @@ class SettingsDialog(QDialog):
         self.dir_edit = QLineEdit(str(self.settings.download_dir))
         self.dir_edit.setReadOnly(True)
         browse_btn = QPushButton("Browse...")
+        browse_btn.setIcon(self.icons.get(IconName.FOLDER_OPEN, IconColor.SECONDARY, IconSize.SMALL))
         browse_btn.clicked.connect(self._on_browse_dir)
         dir_layout.addWidget(self.dir_edit)
         dir_layout.addWidget(browse_btn)
@@ -58,7 +68,11 @@ class SettingsDialog(QDialog):
         self.theme_combo.setCurrentIndex(0)
         gen_form.addRow("Theme:", self.theme_combo)
 
-        tabs.addTab(general_tab, "General")
+        tabs.addTab(
+            general_tab,
+            self.icons.get(IconName.SETTINGS, IconColor.PRIMARY, IconSize.SIDEBAR),
+            "General",
+        )
 
         # Tab 2: Engine & Network
         engine_tab = QWidget()
@@ -82,7 +96,11 @@ class SettingsDialog(QDialog):
         self.speed_limit_spin.setValue(self.settings.global_speed_limit_bps or 0)
         eng_form.addRow("Global Download Speed Limit:", self.speed_limit_spin)
 
-        tabs.addTab(engine_tab, "Engine & Network")
+        tabs.addTab(
+            engine_tab,
+            self.icons.get(IconName.DOWNLOAD, IconColor.PRIMARY, IconSize.SIDEBAR),
+            "Engine & Network",
+        )
 
         # Tab 3: Browser Integration
         browser_tab = QWidget()
@@ -98,7 +116,11 @@ class SettingsDialog(QDialog):
         self.api_key_edit.setReadOnly(True)
         br_form.addRow("Secret API Key:", self.api_key_edit)
 
-        tabs.addTab(browser_tab, "Browser Integration")
+        tabs.addTab(
+            browser_tab,
+            self.icons.get(IconName.EXTENSION, IconColor.PRIMARY, IconSize.SIDEBAR),
+            "Browser Integration",
+        )
 
         main_layout.addWidget(tabs)
 
@@ -126,4 +148,3 @@ class SettingsDialog(QDialog):
         self.settings.global_speed_limit_bps = limit_val if limit_val > 0 else None
         self.settings.api_port = self.api_port_spin.value()
         self.accept()
-

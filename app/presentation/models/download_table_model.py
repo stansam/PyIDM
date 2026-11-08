@@ -5,9 +5,17 @@ from __future__ import annotations
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPersistentModelIndex, Qt
 
 from app.domain.downloads.entities.download import Download
+from app.domain.downloads.enums.category import DownloadCategory
 from app.domain.downloads.enums.download_status import DownloadStatus
 from app.domain.downloads.value_objects.file_size import FileSize
 from app.domain.downloads.value_objects.speed import DownloadSpeed
+from app.presentation.icons import (
+    IconColor,
+    IconManager,
+    IconName,
+    IconSize,
+    get_icon_manager,
+)
 
 
 class DownloadTableModel(QAbstractTableModel):
@@ -23,11 +31,16 @@ class DownloadTableModel(QAbstractTableModel):
         "Category",
     ]
 
-    def __init__(self, downloads: list[Download] | None = None) -> None:
+    def __init__(
+        self,
+        downloads: list[Download] | None = None,
+        icons: IconManager | None = None,
+    ) -> None:
         super().__init__()
         self._downloads: list[Download] = downloads or []
         self._speeds: dict[str, float] = {}
         self._etas: dict[str, float] = {}
+        self._icons = icons or get_icon_manager()
 
     def rowCount(  # noqa: N802
         self, parent: QModelIndex | QPersistentModelIndex | None = None
@@ -56,6 +69,15 @@ class DownloadTableModel(QAbstractTableModel):
 
         dl = self._downloads[index.row()]
         col = index.column()
+
+        if role == Qt.ItemDataRole.DecorationRole:
+            if col == 0:
+                return self._icons.get(
+                    self._get_category_icon(dl.category),
+                    IconColor.PRIMARY,
+                    IconSize.COMPACT,
+                )
+            return None
 
         if role == Qt.ItemDataRole.DisplayRole:
             if col == 0:
@@ -120,3 +142,16 @@ class DownloadTableModel(QAbstractTableModel):
                 idx = self.index(row, 5)
                 self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.DisplayRole])
                 break
+
+    @staticmethod
+    def _get_category_icon(category: DownloadCategory) -> IconName:
+        """Map DownloadCategory to corresponding semantic icon identifier."""
+        mapping = {
+            DownloadCategory.DOCUMENTS: IconName.DOCUMENT,
+            DownloadCategory.ARCHIVES: IconName.ARCHIVE,
+            DownloadCategory.VIDEOS: IconName.VIDEO,
+            DownloadCategory.AUDIO: IconName.AUDIO,
+            DownloadCategory.APPLICATIONS: IconName.APPLICATION,
+            DownloadCategory.OTHER: IconName.OTHER_FILE,
+        }
+        return mapping.get(category, IconName.FILE)

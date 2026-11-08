@@ -20,6 +20,12 @@ from PySide6.QtWidgets import (
 
 from app.domain.downloads.services.filename_resolver import FilenameResolver
 from app.domain.downloads.value_objects.url import DownloadUrl
+from app.presentation.icons import (
+    IconColor,
+    IconName,
+    IconSize,
+    get_icon_manager,
+)
 
 
 class AddDownloadDialog(QDialog):
@@ -27,7 +33,10 @@ class AddDownloadDialog(QDialog):
 
     def __init__(self, default_dir: Path, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.icons = get_icon_manager()
+
         self.setWindowTitle("Add New Download — PyIDM")
+        self.setWindowIcon(self.icons.get(IconName.ADD, IconColor.SUCCESS))
         self.resize(520, 240)
         self.selected_dir = default_dir
 
@@ -36,16 +45,25 @@ class AddDownloadDialog(QDialog):
 
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("https://example.com/file.zip")
+        self.url_edit.addAction(
+            self.icons.get(IconName.LINK, IconColor.MUTED, IconSize.SMALL),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
         self.url_edit.textChanged.connect(self._on_url_changed)
         form.addRow("URL:", self.url_edit)
 
         self.filename_edit = QLineEdit()
+        self.filename_edit.addAction(
+            self.icons.get(IconName.FILE, IconColor.MUTED, IconSize.SMALL),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
         form.addRow("File Name:", self.filename_edit)
 
         dir_layout = QHBoxLayout()
         self.dir_edit = QLineEdit(str(self.selected_dir))
         self.dir_edit.setReadOnly(True)
         browse_btn = QPushButton("Browse...")
+        browse_btn.setIcon(self.icons.get(IconName.FOLDER_OPEN, IconColor.SECONDARY, IconSize.SMALL))
         browse_btn.clicked.connect(self._on_browse)
         dir_layout.addWidget(self.dir_edit)
         dir_layout.addWidget(browse_btn)
