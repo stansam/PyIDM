@@ -1,0 +1,63 @@
+/* Modern Dark Theme for PyIDM */
+QMainWindow, QDialog {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+}
+
+QTableView {
+    background-color: #181825;
+    alternate-background-color: #1e1e2e;
+    color: #cdd6f4;
+    gridline-color: #313244;
+    selection-background-color: #45475a;
+    selection-color: #89b4fa;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+QHeaderView::section {
+    background-color: #11111b;
+    color: #a6adc8;
+    padding: 6px;
+    border: 1px solid #313244;
+    font-weight: bold;
+}
+
+QToolBar {
+    background-color: #11111b;
+    border-bottom: 1px solid #313244;
+    spacing: 8px;
+    padding: 4px;
+}
+
+QPushButton {
+    background-color: #89b4fa;
+    color: #11111b;
+    border-radius: 4px;
+    padding: 6px 14px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: #b4befe;
+}
+
+QPushButton:pressed {
+    background-color: #74c7ec;
+}
+
+QLineEdit {
+    background-color: #313244;
+    color: #cdd6f4;
+    border: 1px solid #45475a;
+    border-radius: 4px;
+    padding: 6px;
+}
+
+QStatusBar {
+    background-color: #11111b;
+    color: #a6adc8;
+    border-top: 1px solid #313244;
+}
+
