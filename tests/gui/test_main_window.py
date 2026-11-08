@@ -261,3 +261,58 @@ def test_theme_manager_and_switching(qtbot: QtBot, tmp_path: Path) -> None:
     dlg.theme_combo.setCurrentIndex(1)  # Light
     dlg._save_and_accept()
     assert settings.theme == "light"
+
+
+def test_main_window_backward_compatibility_and_facade(qtbot: QtBot, tmp_path: Path) -> None:
+    from app.presentation.windows.main_window import MainWindow as PresMainWindow
+    from app.windows.main_window import MainWindow as WinMainWindow
+
+    assert PresMainWindow is WinMainWindow
+
+    settings = AppSettings(
+        download_dir=tmp_path / "downloads",
+        temp_dir=tmp_path / "temp",
+        db_path=tmp_path / "test_compat.db",
+    )
+    container = Container(settings)
+    window = WinMainWindow(container)
+    qtbot.addWidget(window)
+    window.show()
+
+    # Verify all expected backward-compatible attributes exist and are accessible
+    assert window.container is container
+    assert window.icons is not None
+    assert window.toolbar is not None
+    assert window.table_model is not None
+    assert window.table_view is not None
+    assert window.progress_delegate is not None
+    assert window.add_action is not None
+    assert window.resume_action is not None
+    assert window.pause_action is not None
+    assert window.cancel_action is not None
+    assert window.delete_action is not None
+    assert window.settings_action is not None
+    assert window.help_action is not None
+    assert window.profile_combo is not None
+    assert window.sort_btn is not None
+    assert window.search_edit is not None
+    assert window.mode_toggle_btn is not None
+    assert window.sidebar_widget is not None
+    assert window.compact_sidebar_widget is not None
+    assert window.nav_list is not None
+    assert window.cat_list is not None
+    assert window.status_bar is not None
+    assert window.footer_status_label is not None
+    assert window.speed_indicator_label is not None
+    assert window.item_all is not None
+    assert window.item_downloading is not None
+    assert window.item_waiting is not None
+    assert window.item_finished is not None
+
+    # Verify sort and filter methods
+    window._sort_downloads("filename")
+    window._set_nav_filter("ALL")
+    window._on_search_changed("sample")
+    assert window._search_query == "sample"
+    window._on_search_changed("")
+    assert window._search_query == ""
