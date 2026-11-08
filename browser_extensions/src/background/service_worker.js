@@ -11,6 +11,9 @@ let nativePort = null;
 const pendingRequests = new Map();
 let requestCounter = 0;
 
+// Tab ID -> Array<MediaVariant>
+const tabVariantsMap = new Map();
+
 function connectNativePort() {
   if (nativePort) return nativePort;
 
@@ -36,21 +39,10 @@ function handleNativeMessage(response) {
 }
 
 function sendNativeOrFallback(message, callback) {
-  const port = connectNativePort();
   const reqId = `req_${++requestCounter}`;
   message.request_id = reqId;
 
-  if (port) {
-    if (callback) pendingRequests.set(reqId, callback);
-    try {
-      port.postMessage(message);
-      return;
-    } catch (err) {
-      nativePort = null;
-    }
-  }
-
-  // Fallback to local HTTP loopback API if Native Messaging is unavailable
+  // 1. Try local HTTP loopback API first (communicates directly with running GUI)
   if (message.type === "ENQUEUE_MEDIA_DOWNLOAD" || message.type === "ENQUEUE_DOWNLOAD") {
     fetch(FALLBACK_API_URL, {
       method: "POST",
@@ -62,35 +54,90 @@ function sendNativeOrFallback(message, callback) {
         url: message.url,
         filename: message.title ? `${message.title}.${message.container || "mp4"}` : null,
         headers: message.headers || {},
+        page_url: message.page_url || "",
+        size_str: message.size_str || message.quality || "",
       }),
     })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
         if (callback) callback({ type: "DOWNLOAD_ACCEPTED", ...data });
       })
-      .catch((err) => {
-        if (callback) callback({ type: "DOWNLOAD_REJECTED", reason: err.message });
+      .catch(() => {
+        // 2. If GUI loopback API is offline, fall back to Native Messaging host
+        const port = connectNativePort();
+        if (port) {
+          if (callback) pendingRequests.set(reqId, callback);
+          try {
+            port.postMessage(message);
+          } catch (err) {
+            nativePort = null;
+            if (callback) callback({ type: "DOWNLOAD_REJECTED", reason: "Native host disconnected" });
+          }
+        } else if (callback) {
+          callback({ type: "DOWNLOAD_REJECTED", reason: "PyIDM desktop app is not running" });
+        }
       });
+    return;
+  }
+
+  // For non-download messages (e.g. PARSE_MANIFEST), route via native host
+  const port = connectNativePort();
+  if (port) {
+    if (callback) pendingRequests.set(reqId, callback);
+    try {
+      port.postMessage(message);
+    } catch (err) {
+      nativePort = null;
+    }
   }
 }
 
 // Initialize stream sniffer
-initStreamSniffer((tabId, url, streamType) => {
-  // Ask native host to parse variants
-  sendNativeOrFallback(
-    {
-      type: "PARSE_MANIFEST",
-      url: url,
-    },
-    (resp) => {
-      if (resp && resp.variants && resp.variants.length > 0) {
-        chrome.tabs.sendMessage(tabId, {
-          action: "STREAM_VARIANTS_UPDATED",
-          variants: resp.variants,
-        }).catch(() => {});
-      }
-    }
-  );
+initStreamSniffer((tabId, url, mediaType, mediaItem) => {
+  if (mediaType === "HLS" || mediaType === "DASH") {
+    // Attempt fetching manifest content directly in extension context with cookies
+    fetch(url)
+      .then((res) => (res.ok ? res.text() : ""))
+      .catch(() => "")
+      .then((manifestText) => {
+        sendNativeOrFallback(
+          {
+            type: "PARSE_MANIFEST",
+            url: url,
+            content: manifestText || "",
+          },
+          (resp) => {
+            if (resp && resp.variants && resp.variants.length > 0) {
+              const current = tabVariantsMap.get(tabId) || [];
+              tabVariantsMap.set(tabId, resp.variants.concat(current));
+
+              chrome.tabs
+                .sendMessage(tabId, {
+                  action: "STREAM_VARIANTS_UPDATED",
+                  variants: resp.variants,
+                })
+                .catch(() => {});
+            }
+          }
+        );
+      });
+  } else {
+    // Progressive media file captured
+    chrome.tabs
+      .sendMessage(tabId, {
+        action: "MEDIA_SNIFFED",
+        mediaItem: mediaItem,
+      })
+      .catch(() => {});
+  }
+});
+
+// Clean up tabs
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabVariantsMap.delete(tabId);
 });
 
 // Context Menu Setup
@@ -126,8 +173,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   } else if (message.action === "QUERY_TAB_STREAMS") {
     const tabId = sender.tab ? sender.tab.id : -1;
-    const streams = getTabStreams(tabId);
-    sendResponse({ streams });
+    const variants = tabVariantsMap.get(tabId) || [];
+    const media = getTabMedia(tabId) || [];
+    sendResponse({ variants, media });
   }
 });
-

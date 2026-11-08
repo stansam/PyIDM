@@ -9,6 +9,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -26,9 +27,16 @@ from PySide6.QtWidgets import (
 from app.application.container import Container
 from app.domain.downloads.entities.download import Download
 from app.domain.downloads.enums.download_status import DownloadStatus
+from app.domain.downloads.services.filename_resolver import FilenameResolver
+from app.domain.downloads.value_objects.headers import HttpHeaders
+from app.domain.downloads.value_objects.ids import create_download_id
+from app.domain.downloads.value_objects.url import DownloadUrl
 from app.infrastructure.system.clipboard_monitor import ClipboardMonitor
 from app.presentation.delegates.segmented_progress_delegate import (
     SegmentedProgressBarDelegate,
+)
+from app.presentation.dialogs.download_confirmation_dialog import (
+    DownloadConfirmationDialog,
 )
 from app.presentation.icons import (
     IconColor,
@@ -139,6 +147,12 @@ class MainWindow(QMainWindow):
         # Wire Signals from Engine Adapter
         self.container.signal_emitter.progress_updated.connect(self._on_progress_updated)
         self.container.signal_emitter.status_changed.connect(self._on_status_changed)
+        self.container.signal_emitter.browser_download_requested.connect(
+            self._on_browser_download_requested
+        )
+        self.container.signal_emitter.download_added.connect(
+            lambda _id: self._refresh_downloads()
+        )
 
         # Setup Clipboard Monitor
         if self.container.settings.enable_clipboard_monitor:
@@ -339,6 +353,70 @@ class MainWindow(QMainWindow):
             initial_url=initial_url,
         )
         if dl is not None:
+            self.container.download_repo.save(dl)
+            self._refresh_downloads()
+            self.container.download_manager.start_download(dl.id)
+
+    def _on_browser_download_requested(
+        self, url_str: str, filename_str: str, page_url: str, size_str: str, connections: int
+    ) -> None:
+        """Handle incoming download request from browser extension."""
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+        if self.container.settings.show_browser_download_dialog:
+            dialog = DownloadConfirmationDialog(
+                url=url_str,
+                suggested_filename=filename_str or None,
+                default_dir=self.container.settings.download_dir,
+                size_str=size_str or None,
+                default_connections=connections or self.container.settings.default_connections,
+                parent=self,
+            )
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                final_url, final_name, dest_dir, conns = dialog.get_result()
+                try:
+                    url = DownloadUrl.parse(final_url)
+                except Exception:
+                    return
+
+                headers = HttpHeaders()
+                if page_url:
+                    headers = headers.with_header("Referer", page_url)
+
+                dl = Download(
+                    id=create_download_id(),
+                    url=url,
+                    destination_directory=dest_dir,
+                    filename=final_name,
+                    custom_headers=headers,
+                    connection_count=conns,
+                )
+                self.container.download_repo.save(dl)
+                self._refresh_downloads()
+                self.container.download_manager.start_download(dl.id)
+        else:
+            try:
+                url = DownloadUrl.parse(url_str)
+            except Exception:
+                return
+
+            headers = HttpHeaders()
+            if page_url:
+                headers = headers.with_header("Referer", page_url)
+
+            existing_names = {d.filename for d in self.container.download_repo.get_all()}
+            final_name = FilenameResolver.resolve(filename_str, url, existing_names)
+
+            dl = Download(
+                id=create_download_id(),
+                url=url,
+                destination_directory=self.container.settings.download_dir,
+                filename=final_name,
+                custom_headers=headers,
+                connection_count=connections or self.container.settings.default_connections,
+            )
             self.container.download_repo.save(dl)
             self._refresh_downloads()
             self.container.download_manager.start_download(dl.id)

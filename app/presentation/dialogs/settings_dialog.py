@@ -145,6 +145,10 @@ class SettingsDialog(QDialog):
         self._refresh_browser_status(get_browser_status)
         br_form.addRow("Active Browsers:", self.status_label)
 
+        self.browser_dialog_check = QCheckBox("Show download confirmation dialog for browser downloads")
+        self.browser_dialog_check.setChecked(self.settings.show_browser_download_dialog)
+        br_form.addRow("Prompt Dialog:", self.browser_dialog_check)
+
         tabs.addTab(
             browser_tab,
             self.icons.get(IconName.EXTENSION, IconColor.PRIMARY, IconSize.SIDEBAR),
@@ -198,6 +202,7 @@ class SettingsDialog(QDialog):
         limit_val = self.speed_limit_spin.value()
         self.settings.global_speed_limit_bps = limit_val if limit_val > 0 else None
         self.settings.api_port = self.api_port_spin.value()
+        self.settings.show_browser_download_dialog = self.browser_dialog_check.isChecked()
         theme_map = {0: "dark", 1: "light", 2: "system"}
         self.settings.theme = theme_map.get(self.theme_combo.currentIndex(), "dark")
         self.accept()

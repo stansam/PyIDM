@@ -14,6 +14,7 @@
         title: option.title,
         container: option.container,
         quality: option.quality,
+        size_str: option.size_str,
         page_url: window.location.href,
       },
     });
@@ -27,18 +28,29 @@
     const overlay = new PyIDMVideoOverlay(videoEl, onDownloadSelected);
     activeOverlays.set(videoEl, overlay);
 
-    // When metadata loads, populate resolutions
+    const refreshStreams = () => {
+      chrome.runtime.sendMessage({ action: "QUERY_TAB_STREAMS" }, (response) => {
+        if (response) {
+          if (Array.isArray(response.variants) && response.variants.length > 0) {
+            overlay.setVariants(response.variants);
+          }
+          if (Array.isArray(response.media) && response.media.length > 0) {
+            overlay.setMedia(response.media);
+          }
+        }
+      });
+    };
+
     videoEl.addEventListener("loadedmetadata", () => {
       overlay.updatePosition();
-      overlay.populateMenu();
+      refreshStreams();
     });
 
-    // Check if background script already detected streams for this tab
-    chrome.runtime.sendMessage({ action: "QUERY_TAB_STREAMS" }, (response) => {
-      if (response && response.variants && response.variants.length > 0) {
-        overlay.setVariants(response.variants);
-      }
+    videoEl.addEventListener("play", () => {
+      refreshStreams();
     });
+
+    refreshStreams();
   }
 
   function scanForVideos(rootNode = document) {
@@ -48,14 +60,12 @@
     }
   }
 
-  // Initial scan
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => scanForVideos());
   } else {
     scanForVideos();
   }
 
-  // Dynamic DOM observation for SPAs (YouTube, Twitter, TikTok, etc.)
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
       for (const node of m.addedNodes) {
@@ -75,14 +85,24 @@
     subtree: true,
   });
 
-  // Listen for messages from background script
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message) => {
     if (message.action === "STREAM_VARIANTS_UPDATED" && message.variants) {
       const allVideos = document.querySelectorAll("video");
       for (const v of allVideos) {
         const overlay = activeOverlays.get(v);
         if (overlay) {
           overlay.setVariants(message.variants);
+        }
+      }
+    } else if (message.action === "MEDIA_SNIFFED" && message.mediaItem) {
+      const allVideos = document.querySelectorAll("video");
+      for (const v of allVideos) {
+        const overlay = activeOverlays.get(v);
+        if (overlay) {
+          const current = overlay.media || [];
+          if (!current.some((m) => m.url === message.mediaItem.url)) {
+            overlay.setMedia([message.mediaItem, ...current]);
+          }
         }
       }
     }

@@ -33,6 +33,7 @@ class AppSettings(BaseSettings):
     global_speed_limit_bps: int | None = None
     theme: str = "dark"
     enable_clipboard_monitor: bool = False
+    show_browser_download_dialog: bool = True
     api_host: str = DEFAULT_LOOPBACK_HOST
     api_port: int = DEFAULT_LOOPBACK_PORT
     api_secret_key: str = Field(default="pyidm-local-dev-secret-key-256")

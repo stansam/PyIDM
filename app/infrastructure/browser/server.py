@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import secrets
 import threading
-from pathlib import Path
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, Security
@@ -14,6 +13,7 @@ from pydantic import BaseModel
 
 from app.application.container import Container
 from app.domain.downloads.entities.download import Download
+from app.domain.downloads.services.filename_resolver import FilenameResolver
 from app.domain.downloads.value_objects.headers import HttpHeaders
 from app.domain.downloads.value_objects.ids import create_download_id
 from app.domain.downloads.value_objects.url import DownloadUrl
@@ -24,6 +24,8 @@ class AddDownloadPayload(BaseModel):
     url: str
     filename: str | None = None
     headers: dict[str, str] | None = None
+    page_url: str | None = None
+    size_str: str | None = None
 
 
 def create_browser_api_app(container: Container) -> FastAPI:
@@ -69,8 +71,22 @@ def create_browser_api_app(container: Container) -> FastAPI:
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
+        if container.settings.show_browser_download_dialog:
+            container.signal_emitter.browser_download_requested.emit(
+                payload.url,
+                payload.filename or "",
+                payload.page_url or "",
+                payload.size_str or "",
+                container.settings.default_connections,
+            )
+            return {"status": "prompted", "url": payload.url}
+
         custom_h = HttpHeaders(payload.headers) if payload.headers else HttpHeaders()
-        filename = payload.filename or Path(url.path).name or "download.bin"
+        if payload.page_url and not custom_h.get("referer"):
+            custom_h = custom_h.with_header("Referer", payload.page_url)
+
+        existing_names = {d.filename for d in container.download_repo.get_all()}
+        filename = FilenameResolver.resolve(payload.filename, url, existing_names)
 
         download = Download(
             id=create_download_id(),
@@ -82,6 +98,7 @@ def create_browser_api_app(container: Container) -> FastAPI:
         )
 
         container.download_repo.save(download)
+        container.signal_emitter.download_added.emit(str(download.id))
         container.download_manager.start_download(download.id)
 
         return {"status": "enqueued", "download_id": str(download.id)}

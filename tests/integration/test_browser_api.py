@@ -46,7 +46,7 @@ async def test_browser_api_health_and_enqueue(tmp_path: Path) -> None:
         )
         assert bad_host_resp.status_code == 400
 
-        # 4. Valid Enqueue request
+        # 4. Valid Prompt request when show_browser_download_dialog=True
         valid_resp = await client.post(
             "/api/v1/downloads",
             json={"url": "https://example.com/file.zip", "filename": "downloaded.zip"},
@@ -54,10 +54,21 @@ async def test_browser_api_health_and_enqueue(tmp_path: Path) -> None:
         )
         assert valid_resp.status_code == 200
         data = valid_resp.json()
-        assert data["status"] == "enqueued"
-        assert "download_id" in data
+        assert data["status"] == "prompted"
 
-    # Verify download exists in repository
+        # 5. When confirmation dialog is disabled, it directly enqueues
+        settings.show_browser_download_dialog = False
+        direct_resp = await client.post(
+            "/api/v1/downloads",
+            json={"url": "https://example.com/file2.zip", "filename": "direct.zip"},
+            headers={"Host": "127.0.0.1:8743", API_KEY_HEADER_NAME: "secret-token-test"},
+        )
+        assert direct_resp.status_code == 200
+        direct_data = direct_resp.json()
+        assert direct_data["status"] == "enqueued"
+        assert "download_id" in direct_data
+
+    # Verify direct download exists in repository
     all_dl = container.download_repo.get_all()
     assert len(all_dl) == 1
-    assert all_dl[0].filename == "downloaded.zip"
+    assert all_dl[0].filename == "direct.zip"

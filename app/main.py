@@ -37,7 +37,14 @@ def main() -> int:
     window = MainWindow(container)
     window.show()
 
-    return app.exec()
+    # 4. Start Local Browser API Server (127.0.0.1:8743)
+    from app.infrastructure.browser.server import LocalApiServer
+    api_server = LocalApiServer(container)
+    api_server.start()
+
+    ret = app.exec()
+    api_server.stop()
+    return ret
 
 
 if __name__ == "__main__":

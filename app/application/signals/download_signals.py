@@ -16,6 +16,8 @@ class DownloadSignalEmitter(QObject):
     status_changed = Signal(str, str)
     error_occurred = Signal(str, str)
     download_completed = Signal(str)
+    browser_download_requested = Signal(str, str, str, str, int)
+    download_added = Signal(str)
 
     def report_progress(self, download_id: DownloadId, progress: DownloadProgress) -> None:
         total = progress.total_bytes if progress.total_bytes is not None else -1

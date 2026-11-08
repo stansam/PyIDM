@@ -8,6 +8,7 @@ class PyIDMVideoOverlay {
     this.video = videoElement;
     this.onSelect = onDownloadOptionSelected;
     this.variants = [];
+    this.media = [];
     this.isMenuOpen = false;
 
     this.hostElement = document.createElement("div");
@@ -61,7 +62,11 @@ class PyIDMVideoOverlay {
           position: absolute;
           top: calc(100% + 6px);
           right: 0;
-          min-width: 280px;
+          min-width: 320px;
+          max-width: 440px;
+          max-height: 380px;
+          overflow-y: auto;
+          overflow-x: hidden;
           background: #181825;
           border-radius: 8px;
           box-shadow: 0 8px 24px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.12);
@@ -69,6 +74,13 @@ class PyIDMVideoOverlay {
           display: none;
           flex-direction: column;
           gap: 4px;
+        }
+        .pyidm-menu::-webkit-scrollbar {
+          width: 6px;
+        }
+        .pyidm-menu::-webkit-scrollbar-thumb {
+          background: #334155;
+          border-radius: 3px;
         }
         .pyidm-menu.open {
           display: flex;
@@ -78,9 +90,10 @@ class PyIDMVideoOverlay {
           font-weight: 700;
           text-transform: uppercase;
           color: #94a3b8;
-          padding: 4px 8px;
+          padding: 6px 8px;
           border-bottom: 1px solid rgba(255,255,255,0.08);
           margin-bottom: 2px;
+          letter-spacing: 0.5px;
         }
         .pyidm-row {
           display: flex;
@@ -96,6 +109,14 @@ class PyIDMVideoOverlay {
         .pyidm-row:hover {
           background: #2563eb;
           color: #ffffff;
+        }
+        .pyidm-left {
+          display: flex;
+          align-items: center;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          max-width: 230px;
         }
         .pyidm-q {
           font-weight: 700;
@@ -116,6 +137,8 @@ class PyIDMVideoOverlay {
         .pyidm-meta {
           font-size: 11px;
           color: #94a3b8;
+          white-space: nowrap;
+          margin-left: 8px;
         }
         .pyidm-row:hover .pyidm-meta {
           color: #e2e8f0;
@@ -145,14 +168,12 @@ class PyIDMVideoOverlay {
       this.toggleMenu();
     });
 
-    // Close menu when clicking outside
     document.addEventListener("click", () => {
       if (this.isMenuOpen) {
         this.closeMenu();
       }
     });
 
-    // Tracking positions
     const update = () => this.updatePosition();
     window.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", update, { passive: true });
@@ -166,45 +187,136 @@ class PyIDMVideoOverlay {
   }
 
   setVariants(variants) {
-    this.variants = variants;
-    this.populateMenu();
+    if (Array.isArray(variants) && variants.length > 0) {
+      this.variants = variants;
+      this.populateMenu();
+    }
+  }
+
+  setMedia(media) {
+    if (Array.isArray(media)) {
+      this.media = media;
+      this.populateMenu();
+    }
+  }
+
+  getCleanPageTitle() {
+    const title = document.title || "Video";
+    return title.split(" - YouTube")[0].split(" | ")[0].trim() || "Video";
   }
 
   populateMenu() {
     this.optionsContainer.innerHTML = "";
+    const seenResolutions = new Set();
+    const seenUrls = new Set();
+    let optionsCount = 0;
+    const maxOptions = 8;
 
-    if (!this.variants || this.variants.length === 0) {
-      // Fallback single progressive option
-      const src = this.video.currentSrc || this.video.src;
-      if (src && !src.startsWith("blob:")) {
-        const ext = src.split(".").pop().split("?")[0] || "mp4";
-        const res = this.video.videoWidth ? `${this.video.videoWidth}x${this.video.videoHeight}` : "Standard";
+    // 1. Manifest Quality Variants (HLS / DASH)
+    if (this.variants && this.variants.length > 0) {
+      for (const v of this.variants) {
+        if (optionsCount >= maxOptions) break;
+        const resKey = v.quality_label || v.resolution || v.id;
+        if (seenResolutions.has(resKey) || seenUrls.has(v.url)) continue;
+        seenResolutions.add(resKey);
+        seenUrls.add(v.url);
+        optionsCount++;
+
+        let label = v.quality_label || "Auto";
+        if (label === "1080p") label = "1080p Full HD";
+        else if (label === "720p") label = "720p HD";
+        else if (label === "480p") label = "480p SD";
+
+        this.addOptionRow({
+          quality: label,
+          format: (v.container || "MP4").toUpperCase(),
+          meta: v.resolution || (v.bitrate_bps ? `${Math.round(v.bitrate_bps / 1000)} kbps` : ""),
+          url: v.url,
+          title: `${this.getCleanPageTitle()} (${v.quality_label || "video"})`,
+          variantData: v,
+        });
+      }
+    }
+
+    // 2. Standalone Media Files (.mp4, .webm) from Sniffer
+    if (this.media && this.media.length > 0) {
+      for (const m of this.media) {
+        if (optionsCount >= maxOptions) break;
+        if (seenUrls.has(m.url)) continue;
+        seenUrls.add(m.url);
+        optionsCount++;
+
+        const label = m.title || (this.video.videoHeight ? `${this.video.videoHeight}p` : "Direct Video");
+        this.addOptionRow({
+          quality: label,
+          format: (m.format || "MP4").toUpperCase(),
+          meta: m.sizeStr || "Full Video",
+          url: m.url,
+          title: this.getCleanPageTitle(),
+        });
+      }
+    }
+
+    // 3. Child <source> Elements
+    const sources = this.video.querySelectorAll("source");
+    for (const s of sources) {
+      if (optionsCount >= maxOptions) break;
+      const sUrl = s.src || s.getAttribute("src");
+      if (sUrl && !sUrl.startsWith("blob:") && !seenUrls.has(sUrl)) {
+        seenUrls.add(sUrl);
+        optionsCount++;
+
+        const ext = sUrl.split(".").pop().split("?")[0] || "mp4";
+        const res = this.video.videoHeight ? `${this.video.videoHeight}p` : "Source";
+
         this.addOptionRow({
           quality: res,
           format: ext.toUpperCase(),
-          meta: "Direct Stream",
-          url: src,
+          meta: "HTML5 Source",
+          url: sUrl,
+          title: this.getCleanPageTitle(),
         });
       }
-      return;
     }
 
-    for (const v of this.variants) {
+    // 4. Video.currentSrc / Video.src (Direct Progressive)
+    const currentSrc = this.video.currentSrc || this.video.src || this.video.getAttribute("src");
+    if (currentSrc && !currentSrc.startsWith("blob:") && !seenUrls.has(currentSrc)) {
+      if (optionsCount < maxOptions) {
+        seenUrls.add(currentSrc);
+        optionsCount++;
+
+        const ext = currentSrc.split(".").pop().split("?")[0] || "mp4";
+        const res = this.video.videoHeight ? `${this.video.videoHeight}p` : "Standard";
+
+        this.addOptionRow({
+          quality: res,
+          format: ext.toUpperCase(),
+          meta: "Direct Media",
+          url: currentSrc,
+          title: this.getCleanPageTitle(),
+        });
+      }
+    }
+
+    // 5. Fallback for MSE / Blob players when direct URL is inaccessible
+    if (optionsCount === 0) {
+      const res = this.video.videoHeight ? `${this.video.videoHeight}p HD` : "Detected Video";
       this.addOptionRow({
-        quality: v.quality_label || "Auto",
-        format: (v.container || "MP4").toUpperCase(),
-        meta: v.resolution || (v.bitrate_bps ? `${Math.round(v.bitrate_bps / 1000)} kbps` : ""),
-        url: v.url,
-        variantData: v,
+        quality: res,
+        format: "MP4",
+        meta: "Stream URL",
+        url: window.location.href,
+        title: this.getCleanPageTitle(),
       });
     }
   }
 
-  addOptionRow({ quality, format, meta, url, variantData }) {
+  addOptionRow({ quality, format, meta, url, title, variantData }) {
     const row = document.createElement("div");
     row.className = "pyidm-row";
     row.innerHTML = `
-      <div>
+      <div class="pyidm-left">
         <span class="pyidm-q">${quality}</span>
         <span class="pyidm-fmt">${format}</span>
       </div>
@@ -218,9 +330,10 @@ class PyIDMVideoOverlay {
       if (this.onSelect) {
         this.onSelect({
           url: url,
-          title: document.title || "Video Download",
+          title: title || this.getCleanPageTitle(),
           container: format.toLowerCase(),
           quality: quality,
+          size_str: meta,
           variant: variantData,
         });
       }
@@ -232,6 +345,18 @@ class PyIDMVideoOverlay {
   toggleMenu() {
     this.isMenuOpen = !this.isMenuOpen;
     if (this.isMenuOpen) {
+      chrome.runtime.sendMessage({ action: "QUERY_TAB_STREAMS" }, (response) => {
+        if (response) {
+          if (Array.isArray(response.variants) && response.variants.length > 0) {
+            this.variants = response.variants;
+          }
+          if (Array.isArray(response.media) && response.media.length > 0) {
+            this.media = response.media;
+          }
+        }
+        this.populateMenu();
+      });
+
       this.populateMenu();
       this.menuEl.classList.add("open");
       this.chevron.innerText = "▲";
@@ -247,12 +372,12 @@ class PyIDMVideoOverlay {
   }
 
   showSuccess() {
-    const oldText = this.pillBtn.innerHTML;
+    const oldHtml = this.pillBtn.innerHTML;
     this.pillBtn.classList.add("success");
     this.pillBtn.innerHTML = `<span>Sent to PyIDM ✓</span>`;
     setTimeout(() => {
       this.pillBtn.classList.remove("success");
-      this.pillBtn.innerHTML = oldText;
+      this.pillBtn.innerHTML = oldHtml;
       this.chevron = this.shadow.getElementById("pyidm-chevron");
     }, 2500);
   }
@@ -271,7 +396,7 @@ class PyIDMVideoOverlay {
 
     this.hostElement.style.display = "block";
     const top = window.scrollY + rect.top + 12;
-    const left = window.scrollX + rect.right - 150; // Align near upper right
+    const left = window.scrollX + rect.right - 150;
 
     this.hostElement.style.top = `${top}px`;
     this.hostElement.style.left = `${Math.max(window.scrollX + rect.left + 10, left)}px`;
@@ -290,4 +415,3 @@ class PyIDMVideoOverlay {
 if (typeof window !== "undefined") {
   window.PyIDMVideoOverlay = PyIDMVideoOverlay;
 }
-

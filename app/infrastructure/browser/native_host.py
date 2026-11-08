@@ -8,7 +8,8 @@ import os
 import struct
 import sys
 import threading
-from typing import IO, Any
+from collections.abc import Mapping
+from typing import IO
 
 from app.application.container import Container
 from app.domain.downloads.entities.download import Download
@@ -17,6 +18,7 @@ from app.domain.downloads.value_objects.headers import HttpHeaders
 from app.domain.downloads.value_objects.ids import create_download_id
 from app.domain.downloads.value_objects.url import DownloadUrl
 from app.engine.media.manifest_parser import ManifestParser
+from app.engine.media.models import MediaVariant
 
 logger = logging.getLogger("PyIDM.NativeHost")
 
@@ -46,7 +48,7 @@ class NativeMessagingHost:
         self._write_lock = threading.Lock()
         self._stop_event = threading.Event()
 
-    def read_message(self) -> dict[str, Any] | None:
+    def read_message(self) -> dict[str, object] | None:
         """Read a single length-prefixed JSON message from the input stream."""
         raw_length = self.in_stream.read(4)
         if not raw_length or len(raw_length) < 4:
@@ -64,13 +66,13 @@ class NativeMessagingHost:
         try:
             parsed: object = json.loads(raw_payload.decode("utf-8"))
             if isinstance(parsed, dict):
-                return parsed
+                return {str(k): v for k, v in parsed.items()}
             return {"raw_content": parsed}
         except Exception as ex:
             logger.error("Failed to parse native message JSON: %s", ex)
             return None
 
-    def send_message(self, message: dict[str, Any]) -> bool:
+    def send_message(self, message: Mapping[str, object]) -> bool:
         """Send a length-prefixed UTF-8 JSON message to the output stream."""
         try:
             encoded = json.dumps(message, separators=(",", ":")).encode("utf-8")
@@ -83,7 +85,7 @@ class NativeMessagingHost:
             logger.error("Failed to write native message: %s", ex)
             return False
 
-    def handle_message(self, message: dict[str, Any]) -> dict[str, Any]:
+    def handle_message(self, message: Mapping[str, object]) -> dict[str, object]:
         """Dispatch a single parsed native message to the appropriate handler."""
         msg_type = str(message.get("type", "")).upper()
         request_id = message.get("request_id")
@@ -111,7 +113,7 @@ class NativeMessagingHost:
                 "error": f"Unknown message type: {msg_type}",
             }
 
-    def _handle_enqueue(self, message: dict[str, Any]) -> dict[str, Any]:
+    def _handle_enqueue(self, message: Mapping[str, object]) -> dict[str, object]:
         request_id = message.get("request_id")
         raw_url = str(message.get("url", "")).strip()
 
@@ -134,8 +136,8 @@ class NativeMessagingHost:
         # Parse request headers
         raw_headers = message.get("headers")
         custom_headers = (
-            HttpHeaders(raw_headers)
-            if isinstance(raw_headers, dict)
+            HttpHeaders({str(k): str(v) for k, v in raw_headers.items()})
+            if isinstance(raw_headers, Mapping)
             else HttpHeaders()
         )
 
@@ -164,6 +166,38 @@ class NativeMessagingHost:
         }
         filename = FilenameResolver.resolve(cleaned_title, url, existing_names)
 
+        # 1. Forward to running PyIDM desktop GUI if active
+        api_port = self.container.settings.api_port
+        api_url = f"http://127.0.0.1:{api_port}/api/v1/downloads"
+        secret = self.container.settings.api_secret_key
+
+        try:
+            forward_payload = {
+                "url": url.raw,
+                "filename": filename,
+                "headers": custom_headers.to_dict(),
+                "page_url": page_url,
+                "size_str": str(message.get("quality", "")),
+            }
+            resp = self.container.http_client._client.post(
+                api_url,
+                json=forward_payload,
+                headers={"X-PyIDM-Key": secret, "Host": f"127.0.0.1:{api_port}"},
+                timeout=1.0,
+            )
+            if resp.status_code == 200:
+                resp_json: dict[str, object] = resp.json()
+                return {
+                    "type": "DOWNLOAD_ACCEPTED",
+                    "request_id": request_id,
+                    "download_id": str(resp_json.get("download_id", "")),
+                    "filename": filename,
+                    "status": "PROMPTED" if resp_json.get("status") == "prompted" else "DOWNLOADING",
+                }
+        except Exception:
+            pass
+
+        # 2. Standalone fallback if desktop GUI is not running
         download = Download(
             id=create_download_id(),
             url=url,
@@ -184,7 +218,7 @@ class NativeMessagingHost:
             "status": "DOWNLOADING",
         }
 
-    def _handle_parse_manifest(self, message: dict[str, Any]) -> dict[str, Any]:
+    def _handle_parse_manifest(self, message: Mapping[str, object]) -> dict[str, object]:
         request_id = message.get("request_id")
         manifest_url = str(message.get("url", "")).strip()
         manifest_content = str(message.get("content", ""))
@@ -196,7 +230,16 @@ class NativeMessagingHost:
                 "error": "No manifest URL or content provided",
             }
 
-        variants = []
+        # If URL was provided without content, fetch it
+        if not manifest_content and manifest_url:
+            try:
+                headers = HttpHeaders({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                chunks = list(self.container.http_client.stream_full(manifest_url, headers))
+                manifest_content = b"".join(chunks).decode("utf-8", errors="replace")
+            except Exception as ex:
+                logger.warning("Failed to fetch manifest at %s: %s", manifest_url, ex)
+
+        variants: list[MediaVariant] = []
         if ManifestParser.is_hls(manifest_content or manifest_url):
             variants = ManifestParser.parse_hls(manifest_content, base_url=manifest_url)
         elif ManifestParser.is_dash(manifest_content or manifest_url):

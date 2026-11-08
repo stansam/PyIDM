@@ -2,10 +2,9 @@
 
 import io
 import json
-from collections.abc import Mapping
-from pathlib import Path
 import struct
 from collections.abc import Mapping
+from pathlib import Path
 
 from app.application.container import Container
 from app.infrastructure.browser.native_host import NativeMessagingHost
@@ -115,4 +114,4 @@ def test_native_host_invalid_url(tmp_path: Path) -> None:
 
     resp = host.handle_message({"type": "ENQUEUE_MEDIA_DOWNLOAD", "url": "not-a-valid-url"})
     assert resp["type"] == "DOWNLOAD_REJECTED"
-    assert "Invalid URL" in resp["reason"]
+    assert "Invalid URL" in str(resp["reason"])
