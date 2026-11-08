@@ -7,6 +7,7 @@ PyIDM is a modern, enterprise-grade desktop Internet Download Manager written in
 ## 1. Key Features
 
 - **Multi-Connection Acceleration**: Splits files into contiguous byte ranges across parallel HTTP/1.1 connections.
+- **Browser Video Detection & Floating Download Panel**: In-page floating video capture control with quality options for Chrome, Edge, Brave, Opera, and Firefox.
 - **Resilient Lifecycle**: Reliable pause, resume, cancel, and automatic crash recovery via disk manifests.
 - **Automatic Fallback**: Gracefully detects servers lacking byte-range support and falls back to single-stream downloads.
 - **Bandwidth Throttling**: Precision token bucket rate limiting (global and per-download caps).
@@ -122,7 +123,26 @@ python app/main.py
 
 ---
 
-## 5. Development & Testing Workflow
+## 5. Browser Video Detection & Extension Integration
+
+PyIDM provides an in-browser floating video detection panel across **Chrome, Microsoft Edge, Brave, Opera, and Firefox**.
+
+### Quick Registration
+Register PyIDM Native Messaging with all installed browsers in one command:
+```powershell
+python browser_extensions/scripts/register_host.py
+```
+Or click **"Register All Browsers"** inside PyIDM's **Settings $\to$ Browser Integration** tab.
+
+### Loading the Extension
+- **Chrome / Brave / Edge / Opera**: In `chrome://extensions` (Developer mode), click **"Load unpacked"** and select `browser_extensions/dist/chromium`.
+- **Firefox**: In `about:debugging#/runtime/this-firefox`, click **"Load Temporary Add-on"** and select `browser_extensions/dist/firefox/manifest.json`.
+
+📖 For complete architecture specifications, stream sniffing details, and Native Messaging message contracts, see [**Browser Integration Guide**](docs/browser-integration-guide.md).
+
+---
+
+## 6. Development & Testing Workflow
 
 ### Running Tests
 Execute the full automated test suite (including unit, integration, and mock HTTP tests):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -123,6 +124,27 @@ class SettingsDialog(QDialog):
         self.api_key_edit.setReadOnly(True)
         br_form.addRow("Secret API Key:", self.api_key_edit)
 
+        # Native Messaging Cross-Browser Controls
+        from app.infrastructure.browser.registration import (
+            get_browser_status,
+            register_all_browsers,
+            unregister_all_browsers,
+        )
+
+        reg_layout = QHBoxLayout()
+        reg_btn = QPushButton("Register All Browsers")
+        reg_btn.clicked.connect(lambda: self._on_register_browsers(register_all_browsers))
+        unreg_btn = QPushButton("Unregister")
+        unreg_btn.clicked.connect(lambda: self._on_unregister_browsers(unregister_all_browsers))
+        reg_layout.addWidget(reg_btn)
+        reg_layout.addWidget(unreg_btn)
+        br_form.addRow("Native Messaging:", reg_layout)
+
+        self.status_label = QLineEdit()
+        self.status_label.setReadOnly(True)
+        self._refresh_browser_status(get_browser_status)
+        br_form.addRow("Active Browsers:", self.status_label)
+
         tabs.addTab(
             browser_tab,
             self.icons.get(IconName.EXTENSION, IconColor.PRIMARY, IconSize.SIDEBAR),
@@ -138,6 +160,28 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self._save_and_accept)
         buttons.rejected.connect(self.reject)
         main_layout.addWidget(buttons)
+
+    def _refresh_browser_status(
+        self, get_status_fn: Callable[[], dict[str, bool]] | None = None
+    ) -> None:
+        if get_status_fn is None:
+            from app.infrastructure.browser.registration import get_browser_status
+
+            get_status_fn = get_browser_status
+        status = get_status_fn()
+        active = [b.capitalize() for b, registered in status.items() if registered]
+        if active:
+            self.status_label.setText(f"Connected: {', '.join(active)}")
+        else:
+            self.status_label.setText("No browsers registered")
+
+    def _on_register_browsers(self, register_fn: Callable[[], dict[str, bool]]) -> None:
+        register_fn()
+        self._refresh_browser_status()
+
+    def _on_unregister_browsers(self, unregister_fn: Callable[[], dict[str, bool]]) -> None:
+        unregister_fn()
+        self._refresh_browser_status()
 
     def _on_browse_dir(self) -> None:
         chosen = QFileDialog.getExistingDirectory(
