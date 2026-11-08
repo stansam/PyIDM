@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from sqlite3 import Connection as SqliteConnection
 
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, scoped_session, sessionmaker
@@ -15,7 +16,7 @@ def configure_sqlite_pragmas(db_engine: Engine) -> None:
     """Apply high-performance and concurrency PRAGMAs to SQLite connection."""
 
     @event.listens_for(db_engine, "connect")
-    def set_pragmas(dbapi_connection, connection_record) -> None:  # type: ignore[no-untyped-def]
+    def set_pragmas(dbapi_connection: SqliteConnection, connection_record: object) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode = WAL;")
         cursor.execute("PRAGMA synchronous = NORMAL;")

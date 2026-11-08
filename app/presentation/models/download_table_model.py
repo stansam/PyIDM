@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPersistentModelIndex, Qt
 
 from app.domain.downloads.entities.download import Download
+from app.domain.downloads.enums.download_status import DownloadStatus
 from app.domain.downloads.value_objects.file_size import FileSize
 from app.domain.downloads.value_objects.speed import DownloadSpeed
 
@@ -42,7 +41,7 @@ class DownloadTableModel(QAbstractTableModel):
 
     def headerData(  # noqa: N802
         self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole
-    ) -> Any:
+    ) -> object:
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
             return self.COLUMNS[section]
         return None
@@ -51,7 +50,7 @@ class DownloadTableModel(QAbstractTableModel):
         self,
         index: QModelIndex | QPersistentModelIndex,
         role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
+    ) -> object:
         if not index.isValid() or index.row() >= len(self._downloads):
             return None
 
@@ -117,7 +116,6 @@ class DownloadTableModel(QAbstractTableModel):
     def update_status(self, download_id: str, status_str: str) -> None:
         for row, dl in enumerate(self._downloads):
             if str(dl.id) == download_id:
-                from app.domain.downloads.enums.download_status import DownloadStatus
                 dl.status = DownloadStatus(status_str)
                 idx = self.index(row, 5)
                 self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.DisplayRole])

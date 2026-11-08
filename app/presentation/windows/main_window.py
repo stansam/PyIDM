@@ -1,4 +1,4 @@
-"""Main application window for PyIDM."""
+"""Main application window for PyIDM providing Dual-Mode desktop interface."""
 
 from __future__ import annotations
 
@@ -10,9 +10,17 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPushButton,
+    QSplitter,
     QStatusBar,
     QTableView,
     QToolBar,
@@ -22,28 +30,42 @@ from PySide6.QtWidgets import (
 
 from app.application.container import Container
 from app.domain.downloads.entities.download import Download
+from app.domain.downloads.enums.category import DownloadCategory
 from app.domain.downloads.enums.download_status import DownloadStatus
 from app.domain.downloads.value_objects.ids import create_download_id
+from app.domain.downloads.value_objects.speed import DownloadSpeed
 from app.domain.downloads.value_objects.url import DownloadUrl
+from app.infrastructure.system.clipboard_monitor import ClipboardMonitor
+from app.presentation.delegates.segmented_progress_delegate import (
+    SegmentedProgressBarDelegate,
+)
 from app.presentation.dialogs.add_download_dialog import AddDownloadDialog
+from app.presentation.dialogs.download_details_dialog import DownloadDetailsDialog
+from app.presentation.dialogs.settings_dialog import SettingsDialog
 from app.presentation.models.download_table_model import DownloadTableModel
 
 
 class MainWindow(QMainWindow):
-    """Main application window presenting the download dashboard and controls."""
+    """Main application window presenting the download dashboard and dual-mode controls."""
 
     def __init__(self, container: Container) -> None:
         super().__init__()
         self.container = container
         self.setWindowTitle("PyIDM — Python Internet Download Manager")
-        self.resize(980, 580)
+        self.resize(1080, 640)
 
-        # Central Widget & Layout
-        central = QWidget()
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(8, 8, 8, 8)
+        self._is_compact_mode: bool = False
+        self._current_filter: str = "ALL"
+        self._search_query: str = ""
 
-        # Table Model & View
+        # Central Layout
+        self._central_widget = QWidget()
+        self._main_layout = QVBoxLayout(self._central_widget)
+        self._main_layout.setContentsMargins(0, 0, 0, 0)
+        self._main_layout.setSpacing(0)
+        self.setCentralWidget(self._central_widget)
+
+        # Download Table Model & View
         self.table_model = DownloadTableModel()
         self.table_view = QTableView()
         self.table_view.setModel(self.table_model)
@@ -51,58 +73,321 @@ class MainWindow(QMainWindow):
         self.table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self._show_context_menu)
-        layout.addWidget(self.table_view)
+        self.table_view.doubleClicked.connect(self._on_table_double_clicked)
 
-        self.setCentralWidget(central)
+        # Install custom segmented progress bar delegate on column 2 (Progress)
+        self.progress_delegate = SegmentedProgressBarDelegate(self.table_view)
+        self.table_view.setItemDelegateForColumn(2, self.progress_delegate)
 
-        # ToolBar & Actions
-        self._setup_toolbar()
-
-        # Status Bar
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready.")
+        # Setup Header, Sidebar, and Body Splitter
+        self._setup_header_toolbar()
+        self._setup_body()
+        self._setup_footer_statusbar()
 
         # Wire Signals from Engine Adapter
-        self.container.signal_emitter.progress_updated.connect(
-            self.table_model.update_progress
-        )
-        self.container.signal_emitter.status_changed.connect(
-            self.table_model.update_status
-        )
+        self.container.signal_emitter.progress_updated.connect(self._on_progress_updated)
+        self.container.signal_emitter.status_changed.connect(self._on_status_changed)
+
+        # Setup Clipboard Monitor
+        if self.container.settings.enable_clipboard_monitor:
+            self._clipboard_monitor: ClipboardMonitor | None = ClipboardMonitor(
+                on_url_detected=self._on_clipboard_url_detected,
+                enabled=True,
+            )
+        else:
+            self._clipboard_monitor = None
 
         self._refresh_downloads()
 
-    def _setup_toolbar(self) -> None:
-        toolbar = QToolBar("Main Controls")
-        self.addToolBar(toolbar)
+    def _setup_header_toolbar(self) -> None:
+        """Create header toolbar matching page.jfif and compact.jfif."""
+        self.toolbar = QToolBar("Main Controls")
+        self.toolbar.setMovable(False)
+        self.addToolBar(self.toolbar)
 
-        add_action = QAction("➕ Add URL", self)
-        add_action.triggered.connect(self._on_add_download)
-        toolbar.addAction(add_action)
+        # Profile Selector
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItems(["Default Profile", "Work", "High-Priority"])
+        self.profile_combo.setToolTip("Active download connection profile")
+        self.toolbar.addWidget(self.profile_combo)
+        self.toolbar.addSeparator()
 
-        resume_action = QAction("▶ Resume", self)
-        resume_action.triggered.connect(self._on_resume_selected)
-        toolbar.addAction(resume_action)
+        # Primary Action Buttons
+        self.add_action = QAction("➕ New", self)
+        self.add_action.setToolTip("Add a new download URL")
+        self.add_action.triggered.connect(self._on_add_download)
+        self.toolbar.addAction(self.add_action)
 
-        pause_action = QAction("⏸ Pause", self)
-        pause_action.triggered.connect(self._on_pause_selected)
-        toolbar.addAction(pause_action)
+        self.resume_action = QAction("▶ Resume", self)
+        self.resume_action.setToolTip("Resume selected download(s)")
+        self.resume_action.triggered.connect(self._on_resume_selected)
+        self.toolbar.addAction(self.resume_action)
 
-        cancel_action = QAction("⏹ Cancel", self)
-        cancel_action.triggered.connect(self._on_cancel_selected)
-        toolbar.addAction(cancel_action)
+        self.pause_action = QAction("⏸ Pause", self)
+        self.pause_action.setToolTip("Pause selected download(s)")
+        self.pause_action.triggered.connect(self._on_pause_selected)
+        self.toolbar.addAction(self.pause_action)
 
-        delete_action = QAction("🗑 Delete", self)
-        delete_action.triggered.connect(self._on_delete_selected)
-        toolbar.addAction(delete_action)
+        self.cancel_action = QAction("⏹ Stop", self)
+        self.cancel_action.setToolTip("Cancel and stop selected download(s)")
+        self.cancel_action.triggered.connect(self._on_cancel_selected)
+        self.toolbar.addAction(self.cancel_action)
+
+        self.delete_action = QAction("🗑 Delete", self)
+        self.delete_action.setToolTip("Delete selected download record")
+        self.delete_action.triggered.connect(self._on_delete_selected)
+        self.toolbar.addAction(self.delete_action)
+
+        self.toolbar.addSeparator()
+
+        # Sort Order Menu
+        self.sort_btn = QPushButton("⇅ Sort")
+        self.sort_menu = QMenu(self)
+        self.sort_menu.addAction("By Name", lambda: self._sort_downloads("filename"))
+        self.sort_menu.addAction("By Size", lambda: self._sort_downloads("size"))
+        self.sort_menu.addAction("By Status", lambda: self._sort_downloads("status"))
+        self.sort_menu.addAction("By Date", lambda: self._sort_downloads("date"))
+        self.sort_btn.setMenu(self.sort_menu)
+        self.toolbar.addWidget(self.sort_btn)
+
+        # Settings Action
+        settings_action = QAction("⚙ Settings", self)
+        settings_action.triggered.connect(self._on_open_settings)
+        self.toolbar.addAction(settings_action)
+
+        # Spacer between actions and right controls
+        spacer = QWidget()
+        spacer.setSizePolicy(
+            spacer.sizePolicy().horizontalPolicy().Expanding,
+            spacer.sizePolicy().verticalPolicy().Preferred,
+        )
+        self.toolbar.addWidget(spacer)
+
+        # Compact Mode Toggle Switch
+        self.mode_toggle_btn = QPushButton("Compact Mode")
+        self.mode_toggle_btn.setCheckable(True)
+        self.mode_toggle_btn.setChecked(False)
+        self.mode_toggle_btn.clicked.connect(self._toggle_view_mode)
+        self.toolbar.addWidget(self.mode_toggle_btn)
+
+        # Search Bar
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("🔍 Search downloads...")
+        self.search_edit.setMaximumWidth(220)
+        self.search_edit.textChanged.connect(self._on_search_changed)
+        self.toolbar.addWidget(self.search_edit)
+
+    def _setup_body(self) -> None:
+        """Create main body with splitter hosting sidebar and table view."""
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # 1. Expanded Sidebar Widget (page.jfif / page-1.jfif style)
+        self.sidebar_widget = QWidget()
+        sidebar_layout = QVBoxLayout(self.sidebar_widget)
+        sidebar_layout.setContentsMargins(6, 8, 6, 8)
+        sidebar_layout.setSpacing(6)
+
+        # Section: Downloads
+        sidebar_layout.addWidget(QLabel("<b>DOWNLOADS</b>"))
+        self.nav_list = QListWidget()
+        self.item_all = QListWidgetItem("◉ All Tasks")
+        self.item_downloading = QListWidgetItem("⬇ Downloading")
+        self.item_waiting = QListWidgetItem("⏳ Waiting")
+        self.item_finished = QListWidgetItem("✔ Finished / Stopped")
+
+        self.nav_list.addItem(self.item_all)
+        self.nav_list.addItem(self.item_downloading)
+        self.nav_list.addItem(self.item_waiting)
+        self.nav_list.addItem(self.item_finished)
+        self.nav_list.setCurrentRow(0)
+        self.nav_list.itemClicked.connect(self._on_nav_filter_clicked)
+        sidebar_layout.addWidget(self.nav_list)
+
+        # Section: Categories (page-1.jfif classic IDM tree)
+        sidebar_layout.addWidget(QLabel("<b>CATEGORIES</b>"))
+        self.cat_list = QListWidget()
+        self.cat_list.addItem(QListWidgetItem("📁 Documents"))
+        self.cat_list.addItem(QListWidgetItem("📦 Archives"))
+        self.cat_list.addItem(QListWidgetItem("🎬 Videos"))
+        self.cat_list.addItem(QListWidgetItem("🎵 Audio"))
+        self.cat_list.addItem(QListWidgetItem("💻 Applications"))
+        self.cat_list.addItem(QListWidgetItem("🗂 Other"))
+        self.cat_list.itemClicked.connect(self._on_category_filter_clicked)
+        sidebar_layout.addWidget(self.cat_list)
+
+        # Section: Engine Status Badge
+        sidebar_layout.addStretch()
+        self.status_pill = QLabel("🟢 Engine Active")
+        self.status_pill.setStyleSheet(
+            "background-color: #064e3b; color: #34d399; padding: 6px; border-radius: 4px; font-weight: bold;"
+        )
+        self.status_pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sidebar_layout.addWidget(self.status_pill)
+
+        self.splitter.addWidget(self.sidebar_widget)
+
+        # 2. Compact Slim Icon Sidebar Widget (compact.jfif style)
+        self.compact_sidebar_widget = QWidget()
+        compact_layout = QVBoxLayout(self.compact_sidebar_widget)
+        compact_layout.setContentsMargins(4, 8, 4, 8)
+        compact_layout.setSpacing(10)
+
+        btn_dl = QPushButton("⬇")
+        btn_dl.setToolTip("All Downloads")
+        btn_dl.clicked.connect(lambda: self._set_nav_filter("ALL"))
+        compact_layout.addWidget(btn_dl)
+
+        btn_queue = QPushButton("📋")
+        btn_queue.setToolTip("Queues")
+        btn_queue.clicked.connect(lambda: self._set_nav_filter("WAITING"))
+        compact_layout.addWidget(btn_queue)
+
+        btn_done = QPushButton("✔")
+        btn_done.setToolTip("Finished Downloads")
+        btn_done.clicked.connect(lambda: self._set_nav_filter("FINISHED"))
+        compact_layout.addWidget(btn_done)
+
+        btn_add = QPushButton("➕")
+        btn_add.setToolTip("Add Download")
+        btn_add.clicked.connect(self._on_add_download)
+        compact_layout.addWidget(btn_add)
+
+        compact_layout.addStretch()
+
+        btn_settings = QPushButton("⚙")
+        btn_settings.setToolTip("Settings")
+        btn_settings.clicked.connect(self._on_open_settings)
+        compact_layout.addWidget(btn_settings)
+
+        self.compact_sidebar_widget.setFixedWidth(52)
+        self.compact_sidebar_widget.setVisible(False)
+        self.splitter.addWidget(self.compact_sidebar_widget)
+
+        # 3. Main Table Widget
+        self.splitter.addWidget(self.table_view)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 0)
+        self.splitter.setStretchFactor(2, 1)
+
+        self._main_layout.addWidget(self.splitter)
+
+    def _setup_footer_statusbar(self) -> None:
+        """Create footer status bar showing global throughput and storage."""
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+
+        self.footer_status_label = QLabel("Ready.")
+        self.status_bar.addWidget(self.footer_status_label, 1)
+
+        self.speed_indicator_label = QLabel("↓ 0.00 B/s  ↑ 0.00 B/s")
+        self.speed_indicator_label.setStyleSheet("color: #89b4fa; font-weight: bold; padding-right: 16px;")
+        self.status_bar.addPermanentWidget(self.speed_indicator_label)
+
+    def _toggle_view_mode(self) -> None:
+        """Toggle between Expanded Mode (page.jfif) and Compact Mode (compact.jfif)."""
+        self._is_compact_mode = self.mode_toggle_btn.isChecked()
+        if self._is_compact_mode:
+            self.mode_toggle_btn.setText("Expanded Mode")
+            self.sidebar_widget.setVisible(False)
+            self.compact_sidebar_widget.setVisible(True)
+            self.profile_combo.setVisible(False)
+            self.sort_btn.setVisible(False)
+            self.resize(840, 500)
+        else:
+            self.mode_toggle_btn.setText("Compact Mode")
+            self.sidebar_widget.setVisible(True)
+            self.compact_sidebar_widget.setVisible(False)
+            self.profile_combo.setVisible(True)
+            self.sort_btn.setVisible(True)
+            self.resize(1080, 640)
 
     def _refresh_downloads(self) -> None:
+        """Fetch all downloads from database and apply current filters."""
         all_downloads = self.container.download_repo.get_all()
-        self.table_model.set_downloads(all_downloads)
 
-    def _on_add_download(self) -> None:
+        # Update sidebar badges
+        c_all = len(all_downloads)
+        c_active = sum(1 for d in all_downloads if d.status == DownloadStatus.DOWNLOADING)
+        c_waiting = sum(1 for d in all_downloads if d.status in (DownloadStatus.QUEUED, DownloadStatus.PENDING, DownloadStatus.PAUSED))
+        c_done = sum(1 for d in all_downloads if d.status == DownloadStatus.COMPLETED)
+
+        self.item_all.setText(f"◉ All Tasks ({c_all})")
+        self.item_downloading.setText(f"⬇ Downloading ({c_active})")
+        self.item_waiting.setText(f"⏳ Waiting ({c_waiting})")
+        self.item_finished.setText(f"✔ Finished ({c_done})")
+
+        filtered = all_downloads
+
+        # Apply navigation filter
+        if self._current_filter == "DOWNLOADING":
+            filtered = [d for d in filtered if d.status == DownloadStatus.DOWNLOADING]
+        elif self._current_filter == "WAITING":
+            filtered = [d for d in filtered if d.status in (DownloadStatus.QUEUED, DownloadStatus.PENDING, DownloadStatus.PAUSED)]
+        elif self._current_filter == "FINISHED":
+            filtered = [d for d in filtered if d.status in (DownloadStatus.COMPLETED, DownloadStatus.FAILED, DownloadStatus.CANCELLED)]
+        elif self._current_filter.startswith("CAT_"):
+            cat_name = self._current_filter[4:]
+            filtered = [d for d in filtered if d.category.value.upper() == cat_name]
+
+        # Apply search query filter
+        if self._search_query:
+            q = self._search_query.lower()
+            filtered = [d for d in filtered if q in d.filename.lower() or q in d.url.raw.lower()]
+
+        self.table_model.set_downloads(filtered)
+
+    def _on_nav_filter_clicked(self, item: QListWidgetItem) -> None:
+        txt = item.text()
+        if "All" in txt:
+            self._current_filter = "ALL"
+        elif "Downloading" in txt:
+            self._current_filter = "DOWNLOADING"
+        elif "Waiting" in txt:
+            self._current_filter = "WAITING"
+        elif "Finished" in txt:
+            self._current_filter = "FINISHED"
+        self._refresh_downloads()
+
+    def _set_nav_filter(self, filter_name: str) -> None:
+        self._current_filter = filter_name
+        self._refresh_downloads()
+
+    def _on_category_filter_clicked(self, item: QListWidgetItem) -> None:
+        txt = item.text().upper()
+        if "DOCUMENTS" in txt:
+            self._current_filter = f"CAT_{DownloadCategory.DOCUMENTS.value.upper()}"
+        elif "ARCHIVES" in txt:
+            self._current_filter = f"CAT_{DownloadCategory.ARCHIVES.value.upper()}"
+        elif "VIDEOS" in txt:
+            self._current_filter = f"CAT_{DownloadCategory.VIDEOS.value.upper()}"
+        elif "AUDIO" in txt:
+            self._current_filter = f"CAT_{DownloadCategory.AUDIO.value.upper()}"
+        elif "APPLICATIONS" in txt:
+            self._current_filter = f"CAT_{DownloadCategory.APPLICATIONS.value.upper()}"
+        else:
+            self._current_filter = f"CAT_{DownloadCategory.OTHER.value.upper()}"
+        self._refresh_downloads()
+
+    def _on_search_changed(self, text: str) -> None:
+        self._search_query = text.strip()
+        self._refresh_downloads()
+
+    def _sort_downloads(self, key: str) -> None:
+        downloads = self.container.download_repo.get_all()
+        if key == "filename":
+            downloads.sort(key=lambda d: d.filename.lower())
+        elif key == "size":
+            downloads.sort(key=lambda d: d.total_size, reverse=True)
+        elif key == "status":
+            downloads.sort(key=lambda d: d.status.value)
+        elif key == "date":
+            downloads.sort(key=lambda d: d.created_at, reverse=True)
+        self.table_model.set_downloads(downloads)
+
+    def _on_add_download(self, initial_url: str | None = None) -> None:
         dlg = AddDownloadDialog(self.container.settings.download_dir, self)
+        if initial_url:
+            dlg.url_edit.setText(initial_url)
         if dlg.exec():
             url_str, filename, dest_dir, conns = dlg.get_result()
             dl = Download(
@@ -115,6 +400,17 @@ class MainWindow(QMainWindow):
             self.container.download_repo.save(dl)
             self._refresh_downloads()
             self.container.download_manager.start_download(dl.id)
+
+    def _on_clipboard_url_detected(self, detected_url: str) -> None:
+        """Invoked when user copies an HTTP/HTTPS URL with active clipboard monitor."""
+        reply = QMessageBox.question(
+            self,
+            "Download Link Detected",
+            f"PyIDM detected a download URL on your clipboard:\n\n{detected_url}\n\nWould you like to download this file?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._on_add_download(initial_url=detected_url)
 
     def _get_selected_download(self) -> Download | None:
         selected = self.table_view.selectionModel().selectedRows()
@@ -139,10 +435,39 @@ class MainWindow(QMainWindow):
 
     def _on_delete_selected(self) -> None:
         dl = self._get_selected_download()
-        if dl:
+        if not dl:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete '{dl.filename}' from PyIDM?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
             self.container.download_manager.cancel_download(dl.id)
             self.container.download_repo.delete(dl.id)
             self._refresh_downloads()
+
+    def _on_open_settings(self) -> None:
+        dlg = SettingsDialog(self.container.settings, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            if self.container.settings.global_speed_limit_bps:
+                self.container.download_manager.set_global_speed_limit(
+                    self.container.settings.global_speed_limit_bps
+                )
+            else:
+                self.container.download_manager.set_global_speed_limit(None)
+
+    def _on_table_double_clicked(self) -> None:
+        self._on_show_details()
+
+    def _on_show_details(self) -> None:
+        dl = self._get_selected_download()
+        if not dl:
+            return
+        segments = self.container.segment_repo.get_by_download_id(dl.id)
+        dlg = DownloadDetailsDialog(dl, segments, self)
+        dlg.exec()
 
     def _show_context_menu(self, pos: QPoint) -> None:
         dl = self._get_selected_download()
@@ -150,18 +475,50 @@ class MainWindow(QMainWindow):
             return
 
         menu = QMenu(self)
+
         if dl.status in (DownloadStatus.PAUSED, DownloadStatus.PENDING, DownloadStatus.FAILED):
-            menu.addAction("Resume", self._on_resume_selected)
+            menu.addAction("▶ Resume", self._on_resume_selected)
         if dl.status == DownloadStatus.DOWNLOADING:
-            menu.addAction("Pause", self._on_pause_selected)
+            menu.addAction("⏸ Pause", self._on_pause_selected)
 
-        menu.addAction("Open Containing Folder", lambda: self._open_folder(dl.destination_directory))
-        if dl.status == DownloadStatus.COMPLETED:
-            menu.addAction("Open File", lambda: self._open_file(dl.final_path))
-
+        menu.addAction("⏹ Stop / Cancel", self._on_cancel_selected)
         menu.addSeparator()
-        menu.addAction("Delete Record", self._on_delete_selected)
+
+        menu.addAction("📁 Open Containing Folder", lambda: self._open_folder(dl.destination_directory))
+        if dl.status == DownloadStatus.COMPLETED:
+            menu.addAction("📄 Open File", lambda: self._open_file(dl.final_path))
+
+        menu.addAction("🔗 Copy Download Link", lambda: self._copy_link(dl.url.raw))
+        menu.addSeparator()
+
+        # Batch Selection Helpers (from page.jfif)
+        menu.addAction("☑ Select Completed Tasks", self._select_completed)
+        menu.addAction("☑ Select Failed Tasks", self._select_failed)
+        menu.addAction("⊞ Select All", self.table_view.selectAll)
+        menu.addSeparator()
+
+        menu.addAction("ℹ View Details...", self._on_show_details)
+        menu.addAction("🗑 Delete Record", self._on_delete_selected)
+
         menu.exec(self.table_view.viewport().mapToGlobal(pos))
+
+    def _select_completed(self) -> None:
+        for row in range(self.table_model.rowCount()):
+            dl = self.table_model.get_download(row)
+            if dl and dl.status == DownloadStatus.COMPLETED:
+                self.table_view.selectRow(row)
+
+    def _select_failed(self) -> None:
+        for row in range(self.table_model.rowCount()):
+            dl = self.table_model.get_download(row)
+            if dl and dl.status in (DownloadStatus.FAILED, DownloadStatus.CANCELLED):
+                self.table_view.selectRow(row)
+
+    def _copy_link(self, url: str) -> None:
+        from PySide6.QtGui import QGuiApplication
+        clipboard = QGuiApplication.clipboard()
+        if clipboard:
+            clipboard.setText(url)
 
     def _open_folder(self, path: Path) -> None:
         if path.exists():
@@ -171,6 +528,8 @@ class MainWindow(QMainWindow):
                 subprocess.Popen(["open", str(path)])
             else:
                 subprocess.Popen(["xdg-open", str(path)])
+        else:
+            QMessageBox.warning(self, "Directory Not Found", f"Cannot find directory: {path}")
 
     def _open_file(self, file_path: Path) -> None:
         if file_path.exists():
@@ -181,4 +540,16 @@ class MainWindow(QMainWindow):
             else:
                 subprocess.Popen(["xdg-open", str(file_path)])
         else:
-            QMessageBox.warning(self, "File Not Found", f"Cannot find: {file_path}")
+            QMessageBox.warning(self, "File Not Found", f"Cannot find file: {file_path}")
+
+    def _on_progress_updated(
+        self, download_id: str, downloaded_bytes: int, total_bytes: int, speed_bps: float, eta_sec: float
+    ) -> None:
+        self.table_model.update_progress(download_id, downloaded_bytes, total_bytes, speed_bps, eta_sec)
+        # Update aggregate speed label
+        speed_str = DownloadSpeed(speed_bps).formatted if speed_bps > 0 else "0.00 B/s"
+        self.speed_indicator_label.setText(f"↓ {speed_str}  ↑ 0.00 B/s")
+
+    def _on_status_changed(self, download_id: str, status_str: str) -> None:
+        self.table_model.update_status(download_id, status_str)
+        self._refresh_downloads()

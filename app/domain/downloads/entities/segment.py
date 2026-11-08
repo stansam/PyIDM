@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.domain.downloads.enums.segment_status import SegmentStatus
@@ -46,12 +46,12 @@ class DownloadSegment:
         self.downloaded_bytes += bytes_written
         if self.is_complete:
             self.status = SegmentStatus.COMPLETED
-            self.completed_at = datetime.utcnow()
+            self.completed_at = datetime.now(UTC)
 
     def mark_completed(self, completed_at: datetime | None = None) -> None:
         self.downloaded_bytes = self.byte_range.length
         self.status = SegmentStatus.COMPLETED
-        self.completed_at = completed_at or datetime.utcnow()
+        self.completed_at = completed_at or datetime.now(UTC)
 
     def mark_failed(self) -> None:
         self.status = SegmentStatus.FAILED

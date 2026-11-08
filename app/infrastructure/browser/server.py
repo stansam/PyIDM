@@ -5,7 +5,6 @@ from __future__ import annotations
 import secrets
 import threading
 from pathlib import Path
-from typing import Any
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, Security
@@ -64,7 +63,7 @@ def create_browser_api_app(container: Container) -> FastAPI:
         return {"status": "ok", "app": "PyIDM"}
 
     @app.post("/api/v1/downloads", dependencies=[Depends(verify_loopback_and_token)])
-    async def enqueue_download(payload: AddDownloadPayload) -> dict[str, Any]:
+    async def enqueue_download(payload: AddDownloadPayload) -> dict[str, str]:
         try:
             url = DownloadUrl.parse(payload.url)
         except Exception as e:

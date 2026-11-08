@@ -58,4 +58,5 @@ class Container:
             download_repo=self.download_repo,
             max_global_concurrent=self.settings.max_concurrent_downloads,
         )
+        self.signal_emitter.download_completed.connect(lambda _id: self.queue_manager.tick())
 

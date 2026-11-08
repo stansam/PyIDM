@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
+
 from app.domain.downloads.enums.download_status import DownloadStatus
-from app.domain.downloads.interfaces.progress_reporter import ProgressReporter
 from app.domain.downloads.value_objects.ids import DownloadId, SegmentId
 from app.domain.downloads.value_objects.progress import DownloadProgress
 

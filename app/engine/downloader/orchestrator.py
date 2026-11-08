@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime
+from datetime import UTC, datetime
 
 from app.domain.downloads.entities.download import Download
 from app.domain.downloads.entities.segment import DownloadSegment
@@ -147,7 +147,7 @@ class DownloadOrchestrator:
                     strategy=self.download.strategy.value if self.download.strategy else "SINGLE_STREAM",
                     etag=self.download.etag,
                     last_modified=self.download.last_modified,
-                    created_at=datetime.utcnow().isoformat(),
+                    created_at=datetime.now(UTC).isoformat(),
                     segments=[
                         SegmentRecord(
                             id=str(s.id),
@@ -165,7 +165,7 @@ class DownloadOrchestrator:
 
             # 3. Transition to DOWNLOADING
             self.download.status = DownloadStatus.DOWNLOADING
-            self.download.started_at = self.download.started_at or datetime.utcnow()
+            self.download.started_at = self.download.started_at or datetime.now(UTC)
             self.download_repo.save(self.download)
             if self.progress_reporter:
                 self.progress_reporter.report_status_change(
@@ -240,7 +240,7 @@ class DownloadOrchestrator:
 
             # 7. Mark COMPLETED
             self.download.status = DownloadStatus.COMPLETED
-            self.download.completed_at = datetime.utcnow()
+            self.download.completed_at = datetime.now(UTC)
             self.download.downloaded_bytes = self.download.total_size
             self.download_repo.save(self.download)
             self._progress_aggregator.force_emit()

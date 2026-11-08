@@ -112,6 +112,8 @@ With an activated virtual environment:
 # Windows
 .\venv\Scripts\activate
 python app/main.py
+or 
+python -m app.main # run as a module
 
 # Linux / macOS
 source venv/bin/activate

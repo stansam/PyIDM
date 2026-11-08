@@ -54,6 +54,8 @@ class QueueManager:
 
         self._queues: dict[QueueId, DownloadQueue] = {}
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._scheduler_thread: threading.Thread | None = None
 
     def register_queue(self, queue: DownloadQueue) -> None:
         with self._lock:
@@ -104,3 +106,33 @@ class QueueManager:
                             dispatched += 1
 
             return dispatched
+
+    def start_scheduler(self, interval_seconds: float = 1.0) -> None:
+        """Start background scheduler thread that periodically evaluates queues."""
+        with self._lock:
+            if self._scheduler_thread and self._scheduler_thread.is_alive():
+                return
+            self._stop_event.clear()
+            self._scheduler_thread = threading.Thread(
+                target=self._scheduler_loop,
+                args=(interval_seconds,),
+                name="PyIDM-QueueScheduler",
+                daemon=True,
+            )
+            self._scheduler_thread.start()
+
+    def stop_scheduler(self) -> None:
+        """Stop background scheduler thread."""
+        self._stop_event.set()
+        with self._lock:
+            if self._scheduler_thread and self._scheduler_thread.is_alive():
+                self._scheduler_thread.join(timeout=2.0)
+                self._scheduler_thread = None
+
+    def _scheduler_loop(self, interval: float) -> None:
+        while not self._stop_event.is_set():
+            try:
+                self.tick()
+            except Exception:
+                pass
+            self._stop_event.wait(interval)
