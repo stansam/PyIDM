@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
 from app.application.container import Container
 from app.engine.recovery.recovery_manager import RecoveryManager
 from app.infrastructure.configuration.app_settings import AppSettings
+from app.presentation.themes.theme_manager import ThemeManager
 from app.presentation.windows.main_window import MainWindow
 
 
@@ -30,11 +30,8 @@ def main() -> int:
     )
     recovery_mgr.scan_and_reconcile()
 
-    # 2. Apply Dark Theme QSS
-    theme_path = Path(__file__).parent / "presentation" / "themes" / "dark.qss"
-    if theme_path.exists():
-        with open(theme_path, encoding="utf-8") as f:
-            app.setStyleSheet(f.read())
+    # 2. Apply User Configured Theme (Dark / Light / System)
+    ThemeManager.apply_theme(app, settings.theme)
 
     # 3. Create and Show MainWindow
     window = MainWindow(container)

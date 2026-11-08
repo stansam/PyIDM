@@ -216,3 +216,48 @@ def test_help_dialog(qtbot: QtBot) -> None:
     qtbot.addWidget(dlg)
     dlg.show()
     assert dlg.windowTitle().startswith("PyIDM")
+
+
+def test_theme_manager_and_switching(qtbot: QtBot, tmp_path: Path) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from app.presentation.icons import get_icon_manager
+    from app.presentation.themes import ThemeManager
+
+    settings = AppSettings(
+        download_dir=tmp_path / "downloads",
+        temp_dir=tmp_path / "temp",
+        db_path=tmp_path / "test_theme.db",
+        theme="dark",
+    )
+    container = Container(settings)
+    window = MainWindow(container)
+    qtbot.addWidget(window)
+    window.show()
+
+    app = QApplication.instance()
+    assert isinstance(app, QApplication)
+
+    # Verify widget object names for targeted high-contrast stylesheet rules
+    assert window.compact_sidebar_widget.objectName() == "CompactSidebar"
+    assert window.sort_btn.objectName() == "SortButton"
+    assert window.mode_toggle_btn.objectName() == "CompactModeButton"
+
+    icon_mgr = get_icon_manager()
+
+    # Apply Light theme
+    ThemeManager.apply_theme(app, "light")
+    assert icon_mgr.current_theme == "light"
+    window._update_all_icons()
+
+    # Apply Dark theme
+    ThemeManager.apply_theme(app, "dark")
+    assert icon_mgr.current_theme == "dark"
+    window._update_all_icons()
+
+    # Verify SettingsDialog saving theme
+    dlg = SettingsDialog(settings)
+    qtbot.addWidget(dlg)
+    dlg.theme_combo.setCurrentIndex(1)  # Light
+    dlg._save_and_accept()
+    assert settings.theme == "light"

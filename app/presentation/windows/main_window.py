@@ -10,9 +10,11 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -51,6 +53,7 @@ from app.presentation.icons import (
     get_icon_manager,
 )
 from app.presentation.models.download_table_model import DownloadTableModel
+from app.presentation.themes import ThemeManager
 
 
 class MainWindow(QMainWindow):
@@ -85,6 +88,8 @@ class MainWindow(QMainWindow):
         self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self._show_context_menu)
         self.table_view.doubleClicked.connect(self._on_table_double_clicked)
+        self.table_view.horizontalHeader().setStretchLastSection(True)
+        self.table_view.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
 
         # Install custom segmented progress bar delegate on column 2 (Progress)
         self.progress_delegate = SegmentedProgressBarDelegate(self.table_view)
@@ -173,24 +178,25 @@ class MainWindow(QMainWindow):
 
         # Sort Order Menu with icons
         self.sort_btn = QPushButton("Sort")
+        self.sort_btn.setObjectName("SortButton")
         self.sort_btn.setIcon(self.icons.get(IconName.SORT, IconColor.SECONDARY, IconSize.TOOLBAR))
         self.sort_menu = QMenu(self)
-        self.sort_menu.addAction(
+        self.sort_name_action = self.sort_menu.addAction(
             self.icons.get(IconName.FILE, IconColor.SECONDARY, IconSize.COMPACT),
             "By Name",
             lambda: self._sort_downloads("filename"),
         )
-        self.sort_menu.addAction(
+        self.sort_size_action = self.sort_menu.addAction(
             self.icons.get(IconName.DOWNLOAD, IconColor.SECONDARY, IconSize.COMPACT),
             "By Size",
             lambda: self._sort_downloads("size"),
         )
-        self.sort_menu.addAction(
+        self.sort_status_action = self.sort_menu.addAction(
             self.icons.get(IconName.CHECK_COMPLETED, IconColor.SECONDARY, IconSize.COMPACT),
             "By Status",
             lambda: self._sort_downloads("status"),
         )
-        self.sort_menu.addAction(
+        self.sort_date_action = self.sort_menu.addAction(
             self.icons.get(IconName.WAITING, IconColor.SECONDARY, IconSize.COMPACT),
             "By Date",
             lambda: self._sort_downloads("date"),
@@ -199,22 +205,22 @@ class MainWindow(QMainWindow):
         self.toolbar.addWidget(self.sort_btn)
 
         # Settings Action
-        settings_action = QAction(
+        self.settings_action = QAction(
             self.icons.get(IconName.SETTINGS, IconColor.SECONDARY, IconSize.TOOLBAR),
             "Settings",
             self,
         )
-        settings_action.triggered.connect(self._on_open_settings)
-        self.toolbar.addAction(settings_action)
+        self.settings_action.triggered.connect(self._on_open_settings)
+        self.toolbar.addAction(self.settings_action)
 
         # Help Action
-        help_action = QAction(
+        self.help_action = QAction(
             self.icons.get(IconName.HELP, IconColor.PRIMARY, IconSize.TOOLBAR),
             "Help",
             self,
         )
-        help_action.triggered.connect(self._on_open_help)
-        self.toolbar.addAction(help_action)
+        self.help_action.triggered.connect(self._on_open_help)
+        self.toolbar.addAction(self.help_action)
 
         # Spacer between actions and right controls
         spacer = QWidget()
@@ -226,6 +232,7 @@ class MainWindow(QMainWindow):
 
         # Compact Mode Toggle Switch with icon
         self.mode_toggle_btn = QPushButton("Compact Mode")
+        self.mode_toggle_btn.setObjectName("CompactModeButton")
         self.mode_toggle_btn.setIcon(
             self.icons.get(IconName.COMPACT_MODE, IconColor.SECONDARY, IconSize.TOOLBAR)
         )
@@ -237,8 +244,8 @@ class MainWindow(QMainWindow):
         # Search Bar with leading search icon
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search downloads...")
-        self.search_edit.addAction(
-            self.icons.get(IconName.SEARCH, IconColor.MUTED, IconSize.SMALL),
+        self.search_action = self.search_edit.addAction(
+            self.icons.get(IconName.SEARCH, IconColor.SECONDARY, IconSize.SMALL),
             QLineEdit.ActionPosition.LeadingPosition,
         )
         self.search_edit.setMaximumWidth(220)
@@ -256,7 +263,9 @@ class MainWindow(QMainWindow):
         sidebar_layout.setSpacing(6)
 
         # Section: Downloads
-        sidebar_layout.addWidget(QLabel("<b>DOWNLOADS</b>"))
+        downloads_heading = QLabel("DOWNLOADS")
+        downloads_heading.setObjectName("SidebarHeading")
+        sidebar_layout.addWidget(downloads_heading)
         self.nav_list = QListWidget()
         self.item_all = QListWidgetItem(
             self.icons.get(IconName.ALL_TASKS, IconColor.PRIMARY, IconSize.SIDEBAR),
@@ -284,26 +293,25 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self.nav_list)
 
         # Section: Categories (page-1.jfif classic IDM tree)
-        sidebar_layout.addWidget(QLabel("<b>CATEGORIES</b>"))
+        categories_heading = QLabel("CATEGORIES")
+        categories_heading.setObjectName("SidebarHeading")
+        sidebar_layout.addWidget(categories_heading)
         self.cat_list = QListWidget()
-        self.cat_list.addItem(
-            QListWidgetItem(self.icons.get(IconName.DOCUMENT, IconColor.SECONDARY, IconSize.SIDEBAR), "Documents")
-        )
-        self.cat_list.addItem(
-            QListWidgetItem(self.icons.get(IconName.ARCHIVE, IconColor.SECONDARY, IconSize.SIDEBAR), "Archives")
-        )
-        self.cat_list.addItem(
-            QListWidgetItem(self.icons.get(IconName.VIDEO, IconColor.SECONDARY, IconSize.SIDEBAR), "Videos")
-        )
-        self.cat_list.addItem(
-            QListWidgetItem(self.icons.get(IconName.AUDIO, IconColor.SECONDARY, IconSize.SIDEBAR), "Audio")
-        )
-        self.cat_list.addItem(
-            QListWidgetItem(self.icons.get(IconName.APPLICATION, IconColor.SECONDARY, IconSize.SIDEBAR), "Applications")
-        )
-        self.cat_list.addItem(
-            QListWidgetItem(self.icons.get(IconName.OTHER_FILE, IconColor.SECONDARY, IconSize.SIDEBAR), "Other")
-        )
+        self.cat_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._cat_item_map: list[tuple[QListWidgetItem, IconName]] = []
+        cat_defs: list[tuple[str, IconName]] = [
+            ("Documents", IconName.DOCUMENT),
+            ("Archives", IconName.ARCHIVE),
+            ("Videos", IconName.VIDEO),
+            ("Audio", IconName.AUDIO),
+            ("Applications", IconName.APPLICATION),
+            ("Other", IconName.OTHER_FILE),
+        ]
+        for label, icon_name in cat_defs:
+            item = QListWidgetItem(self.icons.get(icon_name, IconColor.SECONDARY, IconSize.SIDEBAR), label)
+            self.cat_list.addItem(item)
+            self._cat_item_map.append((item, icon_name))
+
         self.cat_list.itemClicked.connect(self._on_category_filter_clicked)
         sidebar_layout.addWidget(self.cat_list)
 
@@ -316,11 +324,11 @@ class MainWindow(QMainWindow):
             "background-color: #064e3b; border-radius: 4px;"
         )
 
-        badge_icon_label = QLabel()
-        badge_icon_label.setPixmap(
+        self.badge_icon_label = QLabel()
+        self.badge_icon_label.setPixmap(
             self.icons.get(IconName.ENGINE_ACTIVE, IconColor.SUCCESS, IconSize.SIDEBAR).pixmap(16, 16)
         )
-        status_box_layout.addWidget(badge_icon_label)
+        status_box_layout.addWidget(self.badge_icon_label)
 
         self.status_pill = QLabel("Engine Active")
         self.status_pill.setStyleSheet("color: #34d399; font-weight: bold;")
@@ -333,41 +341,42 @@ class MainWindow(QMainWindow):
 
         # 2. Compact Slim Icon Sidebar Widget (compact.jfif style)
         self.compact_sidebar_widget = QWidget()
+        self.compact_sidebar_widget.setObjectName("CompactSidebar")
         compact_layout = QVBoxLayout(self.compact_sidebar_widget)
         compact_layout.setContentsMargins(4, 8, 4, 8)
         compact_layout.setSpacing(10)
 
-        btn_dl = QPushButton()
-        btn_dl.setIcon(self.icons.get(IconName.DOWNLOAD, IconColor.PRIMARY, IconSize.SIDEBAR))
-        btn_dl.setToolTip("All Downloads")
-        btn_dl.clicked.connect(lambda: self._set_nav_filter("ALL"))
-        compact_layout.addWidget(btn_dl)
+        self.compact_btn_dl = QPushButton()
+        self.compact_btn_dl.setIcon(self.icons.get(IconName.DOWNLOAD, IconColor.PRIMARY, IconSize.SIDEBAR))
+        self.compact_btn_dl.setToolTip("All Downloads")
+        self.compact_btn_dl.clicked.connect(lambda: self._set_nav_filter("ALL"))
+        compact_layout.addWidget(self.compact_btn_dl)
 
-        btn_queue = QPushButton()
-        btn_queue.setIcon(self.icons.get(IconName.QUEUE, IconColor.PRIMARY, IconSize.SIDEBAR))
-        btn_queue.setToolTip("Queues")
-        btn_queue.clicked.connect(lambda: self._set_nav_filter("WAITING"))
-        compact_layout.addWidget(btn_queue)
+        self.compact_btn_queue = QPushButton()
+        self.compact_btn_queue.setIcon(self.icons.get(IconName.QUEUE, IconColor.PRIMARY, IconSize.SIDEBAR))
+        self.compact_btn_queue.setToolTip("Queues")
+        self.compact_btn_queue.clicked.connect(lambda: self._set_nav_filter("WAITING"))
+        compact_layout.addWidget(self.compact_btn_queue)
 
-        btn_done = QPushButton()
-        btn_done.setIcon(self.icons.get(IconName.CHECK_COMPLETED, IconColor.SUCCESS, IconSize.SIDEBAR))
-        btn_done.setToolTip("Finished Downloads")
-        btn_done.clicked.connect(lambda: self._set_nav_filter("FINISHED"))
-        compact_layout.addWidget(btn_done)
+        self.compact_btn_done = QPushButton()
+        self.compact_btn_done.setIcon(self.icons.get(IconName.CHECK_COMPLETED, IconColor.SUCCESS, IconSize.SIDEBAR))
+        self.compact_btn_done.setToolTip("Finished Downloads")
+        self.compact_btn_done.clicked.connect(lambda: self._set_nav_filter("FINISHED"))
+        compact_layout.addWidget(self.compact_btn_done)
 
-        btn_add = QPushButton()
-        btn_add.setIcon(self.icons.get(IconName.ADD, IconColor.SUCCESS, IconSize.SIDEBAR))
-        btn_add.setToolTip("Add Download")
-        btn_add.clicked.connect(self._on_add_download)
-        compact_layout.addWidget(btn_add)
+        self.compact_btn_add = QPushButton()
+        self.compact_btn_add.setIcon(self.icons.get(IconName.ADD, IconColor.SUCCESS, IconSize.SIDEBAR))
+        self.compact_btn_add.setToolTip("Add Download")
+        self.compact_btn_add.clicked.connect(self._on_add_download)
+        compact_layout.addWidget(self.compact_btn_add)
 
         compact_layout.addStretch()
 
-        btn_settings = QPushButton()
-        btn_settings.setIcon(self.icons.get(IconName.SETTINGS, IconColor.SECONDARY, IconSize.SIDEBAR))
-        btn_settings.setToolTip("Settings")
-        btn_settings.clicked.connect(self._on_open_settings)
-        compact_layout.addWidget(btn_settings)
+        self.compact_btn_settings = QPushButton()
+        self.compact_btn_settings.setIcon(self.icons.get(IconName.SETTINGS, IconColor.SECONDARY, IconSize.SIDEBAR))
+        self.compact_btn_settings.setToolTip("Settings")
+        self.compact_btn_settings.clicked.connect(self._on_open_settings)
+        compact_layout.addWidget(self.compact_btn_settings)
 
         self.compact_sidebar_widget.setFixedWidth(52)
         self.compact_sidebar_widget.setVisible(False)
@@ -390,7 +399,7 @@ class MainWindow(QMainWindow):
         self.status_bar.addWidget(self.footer_status_label, 1)
 
         self.speed_indicator_label = QLabel("0.00 B/s")
-        self.speed_indicator_label.setStyleSheet("color: #89b4fa; font-weight: bold; padding-right: 16px;")
+        self.speed_indicator_label.setObjectName("SpeedIndicator")
         self.status_bar.addPermanentWidget(self.speed_indicator_label)
 
     def _toggle_view_mode(self) -> None:
@@ -573,6 +582,54 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self.container.download_manager.set_global_speed_limit(None)
+
+            app = QApplication.instance()
+            if isinstance(app, QApplication):
+                ThemeManager.apply_theme(app, self.container.settings.theme)
+            self._update_all_icons()
+
+    def _update_all_icons(self) -> None:
+        """Refresh all icons across toolbar, sidebar, and compact mode when theme changes."""
+        self.add_action.setIcon(self.icons.get(IconName.ADD, IconColor.SUCCESS, IconSize.TOOLBAR))
+        self.resume_action.setIcon(self.icons.get(IconName.RESUME, IconColor.PRIMARY, IconSize.TOOLBAR))
+        self.pause_action.setIcon(self.icons.get(IconName.PAUSE, IconColor.WARNING, IconSize.TOOLBAR))
+        self.cancel_action.setIcon(self.icons.get(IconName.STOP, IconColor.ERROR, IconSize.TOOLBAR))
+        self.delete_action.setIcon(self.icons.get(IconName.DELETE, IconColor.ERROR, IconSize.TOOLBAR))
+        self.sort_btn.setIcon(self.icons.get(IconName.SORT, IconColor.SECONDARY, IconSize.TOOLBAR))
+        self.settings_action.setIcon(self.icons.get(IconName.SETTINGS, IconColor.SECONDARY, IconSize.TOOLBAR))
+        self.help_action.setIcon(self.icons.get(IconName.HELP, IconColor.PRIMARY, IconSize.TOOLBAR))
+
+        if self._is_compact_mode:
+            self.mode_toggle_btn.setIcon(self.icons.get(IconName.EXPANDED_MODE, IconColor.SECONDARY, IconSize.TOOLBAR))
+        else:
+            self.mode_toggle_btn.setIcon(self.icons.get(IconName.COMPACT_MODE, IconColor.SECONDARY, IconSize.TOOLBAR))
+
+        self.search_action.setIcon(self.icons.get(IconName.SEARCH, IconColor.SECONDARY, IconSize.SMALL))
+
+        self.sort_name_action.setIcon(self.icons.get(IconName.FILE, IconColor.SECONDARY, IconSize.COMPACT))
+        self.sort_size_action.setIcon(self.icons.get(IconName.DOWNLOAD, IconColor.SECONDARY, IconSize.COMPACT))
+        self.sort_status_action.setIcon(self.icons.get(IconName.CHECK_COMPLETED, IconColor.SECONDARY, IconSize.COMPACT))
+        self.sort_date_action.setIcon(self.icons.get(IconName.WAITING, IconColor.SECONDARY, IconSize.COMPACT))
+
+        self.item_all.setIcon(self.icons.get(IconName.ALL_TASKS, IconColor.PRIMARY, IconSize.SIDEBAR))
+        self.item_downloading.setIcon(self.icons.get(IconName.DOWNLOADING, IconColor.PRIMARY, IconSize.SIDEBAR))
+        self.item_waiting.setIcon(self.icons.get(IconName.WAITING, IconColor.WARNING, IconSize.SIDEBAR))
+        self.item_finished.setIcon(self.icons.get(IconName.CHECK_COMPLETED, IconColor.SUCCESS, IconSize.SIDEBAR))
+
+        for cat_item, icon_name in self._cat_item_map:
+            cat_item.setIcon(self.icons.get(icon_name, IconColor.SECONDARY, IconSize.SIDEBAR))
+
+        self.badge_icon_label.setPixmap(
+            self.icons.get(IconName.ENGINE_ACTIVE, IconColor.SUCCESS, IconSize.SIDEBAR).pixmap(16, 16)
+        )
+
+        self.compact_btn_dl.setIcon(self.icons.get(IconName.DOWNLOAD, IconColor.PRIMARY, IconSize.SIDEBAR))
+        self.compact_btn_queue.setIcon(self.icons.get(IconName.QUEUE, IconColor.PRIMARY, IconSize.SIDEBAR))
+        self.compact_btn_done.setIcon(self.icons.get(IconName.CHECK_COMPLETED, IconColor.SUCCESS, IconSize.SIDEBAR))
+        self.compact_btn_add.setIcon(self.icons.get(IconName.ADD, IconColor.SUCCESS, IconSize.SIDEBAR))
+        self.compact_btn_settings.setIcon(self.icons.get(IconName.SETTINGS, IconColor.SECONDARY, IconSize.SIDEBAR))
+
+        self.table_view.viewport().update()
 
     def _on_open_help(self) -> None:
         dlg = HelpDialog(self)

@@ -65,7 +65,14 @@ class SettingsDialog(QDialog):
 
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Dark (Modern)", "Light", "System Default"])
-        self.theme_combo.setCurrentIndex(0)
+        current_theme = self.settings.theme.lower()
+        if current_theme == "light":
+            theme_idx = 1
+        elif current_theme in ("system", "system default"):
+            theme_idx = 2
+        else:
+            theme_idx = 0
+        self.theme_combo.setCurrentIndex(theme_idx)
         gen_form.addRow("Theme:", self.theme_combo)
 
         tabs.addTab(
@@ -147,4 +154,6 @@ class SettingsDialog(QDialog):
         limit_val = self.speed_limit_spin.value()
         self.settings.global_speed_limit_bps = limit_val if limit_val > 0 else None
         self.settings.api_port = self.api_port_spin.value()
+        theme_map = {0: "dark", 1: "light", 2: "system"}
+        self.settings.theme = theme_map.get(self.theme_combo.currentIndex(), "dark")
         self.accept()
